@@ -1,0 +1,17 @@
+.research/
+.local/
+node_modules/
+target/
+dist/
+__pycache__/
+.env
+.env.*
+*.keystore
+*.pfx
+*.p12
+*.pem
+*.apk
+*.rpk
+*.exe
+*.wav
+*.opus
