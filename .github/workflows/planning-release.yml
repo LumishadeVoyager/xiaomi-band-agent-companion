@@ -1,0 +1,24 @@
+name: Planning documentation prerelease
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  documentation-prerelease:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/check_repository.py
+      - name: Publish documentation only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create v0.0.0-planning.1 \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "需求基线 v0.4（文档预发布）" \
+            --notes-file CHANGELOG.md \
+            '需求规格说明书.md' 'docs/ROADMAP.md'
