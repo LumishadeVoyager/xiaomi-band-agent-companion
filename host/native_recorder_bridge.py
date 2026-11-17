@@ -10,13 +10,14 @@ import time
 from xiaomi_native import Session, blob, integer, mapping
 
 
-def run(config, launch):
+def run(config, launch, once=False):
     session = Session(bytes.fromhex(config['authkey']))
     fingerprint = bytes.fromhex(config['fingerprint'])
     identities = {entry: blob(1, ('io.github.lumishadevoyager.bandagent.' + entry).encode()) + blob(2, fingerprint)
                   for entry in ('codex', 'harness')}
     queue = []
     drafts = {}
+    acknowledged = set()
     active = None
     canceled = False
     output = Path(config['output'])
@@ -50,11 +51,13 @@ def run(config, launch):
         if kind == 'ota_hello':
             status(entry, '系统录音通道就绪')
             if entry in drafts:
-                send(entry, dict(type='probe_text', text=drafts[entry]))
+                send(entry, drafts[entry])
         elif kind == 'record_request' and active is None and not queue:
             queue.append(message)
         elif kind == 'record_cancel' and active == message.get('audioId'):
             canceled = True
+        elif kind == 'draft_ack' and entry in drafts and message.get('id') == drafts[entry]['id']:
+            acknowledged.add((entry, message['id']))
         elif kind == 'diag_batch':
             send(entry, dict(type='diag_ack', ids=[event['id'] for event in message['events']]))
 
@@ -111,12 +114,24 @@ def run(config, launch):
                 subprocess.run([config['python'], str(Path(__file__).with_name('transcribe.py')), str(audio_file),
                                 '--output', str(draft_file)], check=True, capture_output=True)
                 draft = json.loads(draft_file.read_text(encoding='utf-8'))
-                drafts[entry] = draft['text']
+                drafts[entry] = dict(type='draft_ready', id=active, audioId=active,
+                                     text=draft['text'], status='unsubmitted')
                 status(entry, '转写完成，尚未执行任务')
                 # System recorder may have brought its own page to the foreground.
                 session.send(20, 4, blob(6, blob(1, identities[entry]) + blob(2, b'/pages/index')))
-                send(entry, dict(type='probe_text', text=draft['text']))
-                print('Transcript returned to wrist; unsubmitted.', flush=True)
+                send(entry, drafts[entry])
+                end = time.monotonic() + 15
+                while (entry, active) not in acknowledged and time.monotonic() < end:
+                    item = session.receive()
+                    if item:
+                        packet = session.decode(item)
+                        if packet and packet.get(1) == 20:
+                            on_app(packet)
+                if (entry, active) not in acknowledged:
+                    raise TimeoutError('wrist_draft_not_acknowledged')
+                print('Wrist acknowledged transcript; unsubmitted.', flush=True)
+                if once:
+                    return
             except Exception as error:
                 print('Capture failed:', type(error).__name__, str(error), flush=True)
                 status(entry, '录音处理失败：' + type(error).__name__)
@@ -130,5 +145,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('config', type=Path)
     parser.add_argument('--launch', choices=['codex', 'harness'])
+    parser.add_argument('--once', action='store_true', help='Exit after one successful wrist transcript')
     args = parser.parse_args()
-    run(json.loads(args.config.read_text(encoding='utf-8')), args.launch)
+    run(json.loads(args.config.read_text(encoding='utf-8')), args.launch, args.once)

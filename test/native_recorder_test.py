@@ -5,10 +5,22 @@ import unittest
 import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'host'))
-from xiaomi_native import AudioFile, blob, crc16, fields, frame, integer, mapping
+from xiaomi_native import AudioFile, Session, blob, crc16, fields, frame, integer, mapping
 
 
 class NativeRecorderTest(unittest.TestCase):
+    def test_sync_list_waits_for_report_16_rather_than_request_15(self):
+        session = Session.__new__(Session)
+        sent = []
+        session.send = lambda *args: sent.append(args)
+        status = integer(1, 18) + integer(2, 22) + blob(20, blob(19, b''))
+        report = integer(1, 18) + integer(2, 16) + blob(20, blob(14, b''))
+        responses = iter([(3, 1, b'\x01\x01' + status), (3, 2, b'\x01\x01' + report)])
+        session.receive = lambda: next(responses)
+        session.on_app = lambda packet: self.fail('Unexpected application packet')
+        self.assertEqual(session.request(15), {14: b''})
+        self.assertEqual(sent, [(18, 15, b'')])
+
     def test_media_wire_commands_and_frame_crc(self):
         # Wire values captured on the device; no identifiers/audio in this fixture.
         command = integer(1, 18) + integer(2, 20) + blob(20, blob(17, integer(1, 0) + integer(2, 0)))

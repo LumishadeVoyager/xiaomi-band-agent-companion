@@ -215,9 +215,10 @@ class Session:
 
     def request(self, command, payload=b''):
         self.send(18, command, payload)
+        response_id = 16 if command == 15 else command
         def match(item):
             packet = self.decode(item)
-            if packet and packet.get(1) == 18 and packet.get(2) == command:
+            if packet and packet.get(1) == 18 and packet.get(2) == response_id:
                 if 100 in packet:
                     raise ValueError('media_command_rejected')
                 return mapping(packet[20])
