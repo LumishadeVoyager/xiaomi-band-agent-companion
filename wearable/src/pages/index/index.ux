@@ -1,12 +1,12 @@
 <template>
   <div class="page">
     <text class="title">{{entryName}}</text>
-    <text class="subtitle">{{buildLabel}} · 录音能力测试</text>
+    <text class="subtitle">{{buildLabel}} · 系统录音测试</text>
     <text class="status">{{statusText}}</text>
     <text class="detail">{{detailText}}</text>
     <input class="action" type="button" value="检测手机连接" onclick="checkPhone" />
-    <input class="action" type="button" value="检查录音接口" onclick="probeCapabilities" />
-    <input class="record" type="button" value="录音 5 秒" onclick="startRecording" />
+    <input class="action" type="button" value="诊断快应用接口" onclick="probeCapabilities" />
+    <input class="record" type="button" value="录音 10 秒" onclick="startRecording" />
     <input class="cancel" type="button" value="取消录音" onclick="cancelRecording" />
     <input class="action" type="button" value="应用更新" onclick="openUpdates" />
     <input class="action" type="button" value="诊断与日志" onclick="openDiagnostics" />
@@ -14,16 +14,15 @@
 </template>
 <script>
 import entry from '../../common/entry.json'
-import wire from '../../common/audio-wire.cjs'
 import capability from '../../common/record-capability.cjs'
 import diagnostics from '../../common/diagnostics.cjs'
 export default {
-  private: { entryName: entry.name, buildLabel: entry.version, statusText: '等待检测', detailText: '首次测试请保持此页亮屏', recording: false, recorder: null, connection: null, queue: [], sending: false, sequence: 0, byteCount: 0, audioId: '', generation: 0, alive: true, logs: null, logTimer: null },
+  private: { entryName: entry.name, buildLabel: entry.version, statusText: '等待检测', detailText: '首次测试请保持此页亮屏', recording: false, recorder: null, connection: null, audioId: '', alive: true, logs: null, logTimer: null },
   onInit() { this.alive = true; try { this.logs = new diagnostics.Diagnostics(entry, require('@system.storage')); this.logs.load(() => { this.logs.record('app_started', {}); this.flushLogs(); }); this.logTimer = setInterval(() => { this.flushLogs(); }, 15000); } catch (error) {} this.checkPhone() },
   onShow() { this.checkPhone() },
-  onDestroy() { this.cancelRecording(); if (this.logTimer) clearInterval(this.logTimer); this.alive = false },
+  onDestroy() { if (this.logTimer) clearInterval(this.logTimer); this.alive = false },
   flushLogs() {
-    if (!this.logs || !this.connection || !this.alive || this.recording || this.queue.length) return;
+    if (!this.logs || !this.connection || !this.alive || this.recording) return;
     var events = this.logs.batch(); if (!events.length) return;
     try { this.connection.send({ data: { protocol: 1, type: 'diag_batch', entryId: entry.id, events: events }, success: function () {}, fail: function () {} }); } catch (error) {}
   },
@@ -36,14 +35,15 @@ export default {
           if (message.type === 'diag_ack' && message.entryId === entry.id && this.logs) { this.logs.ack(message.ids); this.flushLogs(); }
           if (message.type === 'probe_capabilities_request' && message.entryId === entry.id && this.alive) this.probeCapabilities();
           if (message.type === 'probe_status' && message.entryId === entry.id && message.audioId === this.audioId && this.alive) { this.statusText = '电脑已收到音频'; this.detailText = message.bytes + ' 字节，尚未执行任务' }
-          if (message.type === 'probe_text' && message.entryId === entry.id && this.alive) { this.statusText = '电脑转写结果（未发送）'; this.detailText = String(message.text || '').slice(0, 180) }
+          if (message.type === 'record_status' && message.entryId === entry.id && this.alive) { this.statusText = String(message.text || ''); this.detailText = '系统录音机 · 手环麦克风'; this.recording = message.recording === true; }
+          if (message.type === 'probe_text' && message.entryId === entry.id && this.alive) { this.recording = false; this.statusText = '电脑转写结果（未发送）'; this.detailText = String(message.text || '').slice(0, 180) }
           if (message.type === 'draft_ready' && message.entryId === entry.id && message.status === 'unsubmitted' && this.alive) {
-            this.statusText = '转写草稿预览（未发送）'; this.detailText = String(message.text || '').slice(0, 180);
+            this.recording = false; this.statusText = '转写草稿预览（未发送）'; this.detailText = String(message.text || '').slice(0, 180);
             this.connection.send({ data: { protocol: 1, type: 'draft_ack', entryId: entry.id, id: message.id }, success: function () {}, fail: function () {} });
           }
         } catch (error) {}
       };
-      this.connection.getReadyState({ success: (result) => { if (this.alive) { this.statusText = result.status === 1 ? '手机已连接' : '手机伴侣未连接'; if (result.status === 1) { this.probeCapabilities(); this.connection.send({ data: { protocol: 1, type: 'ota_hello', entryId: entry.id, versionCode: entry.versionCode, version: entry.version }, success: function () {}, fail: function () {} }) } } }, fail: (error, code) => { if (this.alive) this.statusText = '连接错误 ' + code } });
+      this.connection.getReadyState({ success: (result) => { if (this.alive) { this.statusText = result.status === 1 ? '手机已连接' : '手机伴侣未连接'; if (result.status === 1) { this.detailText = '通过手机调用系统录音机'; this.connection.send({ data: { protocol: 1, type: 'ota_hello', entryId: entry.id, versionCode: entry.versionCode, version: entry.version }, success: function () {}, fail: function () {} }) } } }, fail: (error, code) => { if (this.alive) this.statusText = '连接错误 ' + code } });
     } catch (error) { this.statusText = '通信接口不可用'; this.detailText = String(error.message || error).slice(0, 100) }
   },
   inspectRecorder() {
@@ -52,10 +52,10 @@ export default {
     return capability.inspectRecord(function () { return require('@system.record') }, query);
   },
   openUpdates() {
-    if (this.recording || this.queue.length) { this.statusText = '请等待录音处理结束'; return; }
+    if (this.recording) { this.statusText = '请等待录音处理结束'; return; }
     try { require('@system.router').push({ uri: '/pages/update' }); } catch (error) { this.statusText = '无法打开更新页面'; }
   },
-  openDiagnostics() { if (this.recording || this.queue.length) { this.statusText = '请等待录音处理结束'; return; } try { require('@system.router').push({ uri: '/pages/diagnostics' }); } catch (error) { this.statusText = '无法打开诊断页面'; } },
+  openDiagnostics() { if (this.recording) { this.statusText = '请等待录音处理结束'; return; } try { require('@system.router').push({ uri: '/pages/diagnostics' }); } catch (error) { this.statusText = '无法打开诊断页面'; } },
   probeCapabilities() {
     var result = this.inspectRecorder();
     var info = result.report;
@@ -65,63 +65,17 @@ export default {
     if (this.logs) { this.logs.record('record_' + info.state, info, info.state === 'method_available' ? 'info' : 'error'); this.flushLogs(); }
     if (this.connection) { try { this.connection.send({ data: { protocol: 1, type: 'probe_capabilities', entryId: entry.id, version: entry.version, record: info }, success: function () {}, fail: function () {} }); } catch (error) {} }
   },
-  sendNext() {
-    if (!this.alive || this.sending || !this.queue.length) return;
-    var generation = this.generation;
-    this.sending = true;
-    try {
-      this.connection.send({ data: this.queue[0], success: () => {
-        if (!this.alive || generation !== this.generation) return;
-        this.queue.shift(); this.sending = false;
-        if (!this.queue.length && !this.recording) this.statusText = '音频已发往手机';
-        this.sendNext();
-      }, fail: (error, code) => { if (generation !== this.generation) return; this.failCapture('手机发送失败 ' + code) } });
-    } catch (error) { this.failCapture('通信调用失败') }
-  },
-  enqueue(message) {
-    if (this.queue.length >= 8) { this.failCapture('发送过慢，已停止'); return false }
-    this.queue.push(message); this.sendNext(); return true;
-  },
   startRecording() {
-    if (this.recording || this.queue.length) return;
-    try {
-      var inspection = this.inspectRecorder();
-      this.recorder = inspection.recorder;
-      if (!this.recorder) { this.probeCapabilities(); return; }
-      if (!this.connection) this.connection = require('@system.interconnect').instance();
-      this.generation++; var generation = this.generation;
-      this.sequence = 0; this.byteCount = 0; this.audioId = 'audio_' + Date.now().toString(36); this.queue = []; this.sending = false;
-      this.recording = true; this.statusText = '正在录音，请说话'; this.detailText = '16kHz · 单声道 · 最长5秒'; if (this.logs) this.logs.record('capture_started', {});
-      this.recorder.onframerecorded = (result) => {
-        if (!this.alive || generation !== this.generation) return;
-        var frame = result.frameBuffer;
-        if (frame && frame.length) {
-          var message = wire.envelope(entry.id, this.audioId, 'audio_chunk', { sequence: this.sequence, data: wire.encodeBase64(frame) });
-          this.sequence++; this.byteCount += frame.length;
-          if (!this.enqueue(message)) return;
-          this.detailText = '已采集 ' + this.byteCount + ' 字节';
-        }
-        if (result.isLastFrame) this.finishCapture(generation);
-      };
-      if (!this.enqueue(wire.envelope(entry.id, this.audioId, 'audio_begin', { sampleRate: 16000, channels: 1, encoding: 'pcm_s16le' })) || generation !== this.generation) return;
-      this.recorder.start({ duration: 5000, sampleRate: 16000, numberOfChannels: 1, encodeBitRate: 256000, format: 'pcm', frameSize: 1024,
-        fail: (error, code) => { if (generation === this.generation) this.failCapture('录音失败 ' + code) },
-        complete: () => { setTimeout(() => { if (generation === this.generation && this.recording) this.failCapture('未收到录音结束帧') }, 1000) }
-      });
-    } catch (error) { this.failCapture('录音接口不可用'); this.detailText = String(error.message || error).slice(0, 100) }
+    if (this.recording) return;
+    if (!this.connection) { this.checkPhone(); return; }
+    this.audioId = 'audio_' + Date.now().toString(36);
+    this.recording = true; this.statusText = '请求手环系统录音'; this.detailText = '手机直连通道 · 录音10秒';
+    try { this.connection.send({ data: { protocol: 1, type: 'record_request', entryId: entry.id, audioId: this.audioId, durationMs: 10000 }, success: function () {}, fail: (error, code) => { this.recording = false; this.statusText = '录音请求发送失败 ' + code; } }); }
+    catch (error) { this.recording = false; this.statusText = '手机通道不可用'; }
   },
-  finishCapture(generation) {
-    if (generation !== this.generation || !this.recording) return;
-    this.recording = false;
-    if (!this.byteCount) { this.failCapture('未收到录音数据'); return }
-    this.statusText = '录音结束，发送中'; if (this.logs) this.logs.record('capture_finished', { bytes: this.byteCount, sequence: this.sequence });
-    this.enqueue(wire.envelope(entry.id, this.audioId, 'audio_end', { chunks: this.sequence, bytes: this.byteCount }));
-  },
-  failCapture(message) { if (this.logs) this.logs.record('capture_failed', { phase: 'capture', bytes: this.byteCount, sequence: this.sequence }, 'error'); this.cancelRecording(); if (this.alive) this.statusText = message; this.flushLogs(); },
   cancelRecording() {
-    var oldId = this.audioId; this.generation++; this.recording = false; this.queue = []; this.sending = false;
-    try { if (this.recorder) this.recorder.stop() } catch (error) {}
-    if (oldId && this.connection) { try { this.connection.send({ data: wire.envelope(entry.id, oldId, 'audio_cancel', {}), success: function () {}, fail: function () {} }) } catch (error) {} }
+    var oldId = this.audioId; this.recording = false;
+    if (oldId && this.connection) { try { this.connection.send({ data: { protocol: 1, type: 'record_cancel', entryId: entry.id, audioId: oldId }, success: function () {}, fail: function () {} }) } catch (error) {} }
     this.audioId = ''; if (this.alive) this.statusText = '已取消';
   }
 }
