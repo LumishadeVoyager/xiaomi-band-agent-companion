@@ -74,6 +74,7 @@ for entry, label in [('codex', 'Codex 伴侣（预览）'), ('harness', 'Harness
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
 <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+<uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
 <queries><package android:name="com.mi.health"/><package android:name="com.xiaomi.wearable"/><package android:name="moe.astralsight.astrobox"/></queries>
 <application android:label="{label}" android:allowBackup="false" android:usesCleartextTraffic="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
 <service android:name="io.github.lumishadevoyager.bandagent.BridgeService" android:exported="false" android:foregroundServiceType="connectedDevice"/>
@@ -81,6 +82,7 @@ for entry, label in [('codex', 'Codex 伴侣（预览）'), ('harness', 'Harness
 <receiver android:name="io.github.lumishadevoyager.bandagent.RestartReceiver" android:exported="false"><intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter></receiver>
 <provider android:name="io.github.lumishadevoyager.bandagent.ProbeFileProvider" android:authorities="{package}.probe-files" android:exported="false" android:grantUriPermissions="true"/>
 <activity android:name="io.github.lumishadevoyager.bandagent.BridgeActivity" android:exported="true" android:launchMode="singleTask"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+<activity android:name="io.github.lumishadevoyager.bandagent.RecordingIntakeActivity" android:label="发送到 {entry} 手环语音" android:exported="true"><intent-filter><action android:name="android.intent.action.SEND"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="audio/*"/><data android:mimeType="application/octet-stream"/></intent-filter></activity>
 </application></manifest>''', encoding='utf-8')
     android_jar = args.platform / 'android.jar'
     sources = list((ROOT / 'android-probe/src').rglob('*.java'))

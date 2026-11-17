@@ -37,10 +37,18 @@ const server = https.createServer({ key: fs.readFileSync(keyPath), cert: fs.read
   const reply = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
   const received = Buffer.from(req.headers.authorization || '');
   if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) return reply(401, { error: 'unauthorized' });
-  if (req.method !== 'POST' || !['/audio', '/diagnostics', '/poll', '/ack'].includes(req.url)) return reply(404, { error: 'not_found' });
+  const address = new URL(req.url, 'https://band-agent.local');
+  if (req.method !== 'POST' || !['/audio', '/diagnostics', '/poll', '/ack', '/recording'].includes(address.pathname)) return reply(404, { error: 'not_found' });
   try {
-    const parts = []; let size = 0; const limit = req.url === '/audio' ? 8192 : 65536;
+    const parts = []; let size = 0; const limit = address.pathname === '/recording' ? 2 * 1024 * 1024 : req.url === '/audio' ? 8192 : 65536;
     for await (const part of req) { size += part.length; if (size > limit) throw new Error('body_too_large'); parts.push(part); }
+    if (address.pathname === '/recording') {
+      const entry = address.searchParams.get('entryId'), id = address.searchParams.get('audioId');
+      require('../shared/audio-wire.cjs').validateIdentity(entry, id);
+      const file = path.join(directory, entry + '-' + id + '.audio');
+      fs.writeFileSync(file, Buffer.concat(parts), { flag: 'wx' }); transcribe(file, entry, id);
+      return reply(200, { received: true, bytes: size });
+    }
     const data = JSON.parse(Buffer.concat(parts).toString('utf8'));
     if (req.url === '/poll') return reply(200, { commands: store.commands(data.entryId) });
     if (req.url === '/ack') { store.ackCommands(data.entryId, data.ids); return reply(200, { ok: true }); }

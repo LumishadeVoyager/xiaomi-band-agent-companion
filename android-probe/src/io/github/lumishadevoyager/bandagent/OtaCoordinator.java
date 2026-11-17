@@ -81,6 +81,7 @@ public final class OtaCoordinator {
                 sink.state("installing", "手环安装已入队，正在读取结果", 0);
             }
         } catch (Exception error) {
+            android.util.Log.e("BandAgentBridge", "update failed", error);
             String reason = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
             if (reason.equals("http_404")) sink.state("no_release", "当前通道尚未发布可安装更新", 0);
             else if (reason.equals("astrobox_pairing_required")) { prefs.edit().putBoolean("installerSetupPending", true).apply(); sink.state("installer_setup", "首次更新请在 AstroBox 允许 Band Agent 安装通路", 0); }
@@ -92,7 +93,7 @@ public final class OtaCoordinator {
         try {
             String target = prefs.getString("deviceId", ""); long expected = prefs.getLong("wearPendingCode", 0);
             long actual = astro().installedVersion(target, context.getPackageName());
-            if (actual >= expected && expected > 0) { hello(actual); return; }
+            if (actual >= expected && expected > 0) { hello(actual); astro().disconnect(target); return; }
             if ("result_unknown".equals(taskId)) { sink.state("unknown", "安装结果待核对，未重复安装；请保持 AstroBox 连接", 0); return; }
             JSONObject task = astro().task(taskId); String state = task.getString("status");
             if (state.equals("failed") || state.equals("canceled")) { prefs.edit().remove("wearTaskId").remove("wearPendingCode").commit(); sink.state("failed", "手环安装" + state + "：" + task.optString("errorCode"), 0); return; }

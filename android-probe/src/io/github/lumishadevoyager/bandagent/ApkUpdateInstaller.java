@@ -19,7 +19,7 @@ public final class ApkUpdateInstaller {
         PackageInstaller installer = pm.getPackageInstaller();
         PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         params.setAppPackageName(context.getPackageName()); params.setSize(file.length());
-        if (android.os.Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED);
+        if (android.os.Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
         int id = installer.createSession(params);
         boolean committed = false;
         try (PackageInstaller.Session session = installer.openSession(id)) {
