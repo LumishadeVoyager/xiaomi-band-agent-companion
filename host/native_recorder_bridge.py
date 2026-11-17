@@ -145,6 +145,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('config', type=Path)
     parser.add_argument('--launch', choices=['codex', 'harness'])
-    parser.add_argument('--once', action='store_true', help='Exit after one successful wrist transcript')
+    parser.add_argument('--once', action='store_true', help='Exit after one draft message ACK; this does not verify visible UI')
     args = parser.parse_args()
     run(json.loads(args.config.read_text(encoding='utf-8')), args.launch, args.once)
