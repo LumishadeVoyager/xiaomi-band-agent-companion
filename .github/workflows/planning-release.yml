@@ -17,8 +17,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          cp '需求规格说明书.md' requirements-v0.4.md
+          cp docs/ROADMAP.md roadmap.md
           gh release create v0.0.0-planning.1 \
             --target "$GITHUB_SHA" --prerelease \
             --title "需求基线 v0.4（文档预发布）" \
             --notes-file CHANGELOG.md \
-            '需求规格说明书.md' 'docs/ROADMAP.md'
+            requirements-v0.4.md roadmap.md
