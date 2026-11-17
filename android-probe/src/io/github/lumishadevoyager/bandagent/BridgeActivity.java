@@ -4,11 +4,16 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.content.Intent;
 import android.content.ClipData;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.util.Base64;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.CheckBox;
 import com.xiaomi.xms.wearable.Wearable;
 import com.xiaomi.xms.wearable.auth.Permission;
 import com.xiaomi.xms.wearable.message.OnMessageReceivedListener;
@@ -29,12 +34,11 @@ public final class BridgeActivity extends Activity {
     private boolean registered;
     private String entry;
     private String token;
-    private final ExecutorService transfer = Executors.newSingleThreadExecutor();
-    private final OnMessageReceivedListener listener = (nodeId, bytes) -> {
-        final String sourceNode = nodeId;
-        transfer.execute(() -> forward(sourceNode, bytes));
-    };
     private String pendingText;
+    private boolean development;
+    private final BroadcastReceiver statusReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) { show(intent.getStringExtra("text")); }
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -42,6 +46,7 @@ public final class BridgeActivity extends Activity {
             JSONObject config = new JSONObject(read(getAssets().open("development.json")));
             entry = config.getString("entryId");
             token = config.getString("token");
+            development = config.optBoolean("development", false);
         } catch (Exception error) { throw new IllegalStateException("Missing development configuration", error); }
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -51,10 +56,18 @@ public final class BridgeActivity extends Activity {
         button(layout, "连接手环并授权", this::connect);
         button(layout, "打开对应手环应用", this::launchWearApp);
         button(layout, "用 AstroBox 安装对应测试包", this::installWearApp);
+        button(layout, "检查并安装更新", () -> startForegroundService(new Intent(this, BridgeService.class).setAction("check")));
+        button(layout, "打开 AstroBox（首次允许安装通路）", () -> { Intent launch = getPackageManager().getLaunchIntentForPackage("moe.astralsight.astrobox"); if (launch != null) startActivity(launch); });
+        button(layout, "允许本应用更新手机安装包", () -> startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))));
+        CheckBox automatic = new CheckBox(this); automatic.setText("自动更新 · preview 测试通道"); automatic.setChecked(getSharedPreferences("ota", 0).getBoolean("autoUpdates", true));
+        automatic.setOnCheckedChangeListener((button, checked) -> getSharedPreferences("ota", 0).edit().putBoolean("autoUpdates", checked).apply()); layout.addView(automatic);
         setContentView(layout);
-        show((entry.equals("codex") ? "Codex" : "DeepSeek Harness") + " 录音测试伴侣\n不采集手机麦克风，不执行任务");
+        registerReceiver(statusReceiver, new IntentFilter(getPackageName() + ".STATUS"), Context.RECEIVER_NOT_EXPORTED);
+        show((entry.equals("codex") ? "Codex" : "DeepSeek Harness") + " 开发预览\n" + getSharedPreferences("ota", 0).getString("lastStatus", "尚未接入 Agent 执行"));
+        if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, 10);
         connect();
         acceptDevelopmentIntent(getIntent());
+        acceptComputerPairing(getIntent());
     }
     private void button(LinearLayout layout, String title, Runnable action) {
         Button button = new Button(this); button.setText(title); button.setOnClickListener(v -> action.run()); layout.addView(button);
@@ -71,9 +84,8 @@ public final class BridgeActivity extends Activity {
     }
     private void register() {
         if (registered) { show("监听已就绪，请在手环打开对应应用"); return; }
-        Wearable.getMessageApi(this).addListener(node.id, listener)
-            .addOnSuccessListener(ignored -> { registered = true; show("监听已就绪，请在手环录音\n电脑需运行 USB 音频接收器"); sendPendingText(); })
-            .addOnFailureListener(error -> show("消息监听失败：" + error.getClass().getSimpleName()));
+        try { startForegroundService(new Intent(this, BridgeService.class).putExtra("nodeId", node.id)); registered = true; show("后台服务已启动，请在手环打开应用"); sendPendingText(); }
+        catch (Exception error) { show("后台服务启动失败：" + error.getClass().getSimpleName()); }
     }
     private void launchWearApp() {
         if (node == null) { connect(); return; }
@@ -93,35 +105,14 @@ public final class BridgeActivity extends Activity {
             startActivity(share);
         } catch (Exception error) { show("无法打开 AstroBox：" + error.getClass().getSimpleName()); }
     }
-    private void forward(String nodeId, byte[] bytes) {
-        HttpURLConnection connection = null;
-        try {
-            if (bytes.length > 8192) throw new IllegalArgumentException("message_too_large");
-            JSONObject message = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
-            if (!entry.equals(message.optString("entryId")) || message.optInt("protocol") != 1) return;
-            String type = message.optString("type");
-            if (type.equals("probe_capabilities")) { String version = message.optString("version", "unknown"); show("手环接口诊断 " + version + "：\n" + message.optJSONObject("record")); android.util.Log.i("BandAgentProbe", "version=" + version + " capabilities=" + message.optJSONObject("record")); return; }
-            if (!(type.equals("audio_begin") || type.equals("audio_chunk") || type.equals("audio_end") || type.equals("audio_cancel"))) return;
-            connection = (HttpURLConnection) new URL("http://127.0.0.1:8789/audio").openConnection();
-            connection.setConnectTimeout(2500); connection.setReadTimeout(5000);
-            connection.setRequestMethod("POST"); connection.setDoOutput(true);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-            connection.setRequestProperty("Content-Type", "application/json");
-            connection.setFixedLengthStreamingMode(bytes.length);
-            try (java.io.OutputStream output = connection.getOutputStream()) { output.write(bytes); }
-            int code = connection.getResponseCode();
-            JSONObject reply = new JSONObject(read(code == 200 ? connection.getInputStream() : connection.getErrorStream()));
-            if (code != 200) throw new IllegalStateException(reply.optString("error", "receiver_error"));
-            if (reply.optBoolean("complete")) {
-                show("电脑已收到手环音频：" + reply.optInt("bytes") + " 字节\n尚未转写或执行");
-                JSONObject statusMessage = new JSONObject().put("type", "probe_status").put("audioId", message.getString("audioId")).put("entryId", entry).put("text", "电脑已收到音频").put("bytes", reply.optInt("bytes"));
-                Wearable.getMessageApi(this).sendMessage(nodeId, statusMessage.toString().getBytes(StandardCharsets.UTF_8));
-            }
-        } catch (Exception error) { show("USB 音频转发失败：" + error.getClass().getSimpleName()); }
-        finally { if (connection != null) connection.disconnect(); }
+    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); acceptDevelopmentIntent(intent); acceptComputerPairing(intent); }
+    private void acceptComputerPairing(Intent intent) {
+        String encoded = intent.getStringExtra("signed_pairing_b64"); if (encoded == null || encoded.length() > 8192) return;
+        try { new ComputerLink(this).pair(Base64.decode(encoded, Base64.DEFAULT)); startForegroundService(new Intent(this, BridgeService.class).setAction("reload_link")); show("电脑签名配对已保存，日志与音频将自动上传"); }
+        catch (Exception error) { show("电脑配对未通过校验：" + error.getClass().getSimpleName()); }
     }
-    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); acceptDevelopmentIntent(intent); }
     private void acceptDevelopmentIntent(Intent intent) {
+        if (!development) return;
         String encoded = intent.getStringExtra("transcript_b64");
         if (encoded == null || encoded.length() > 2048) return;
         try { pendingText = new String(Base64.decode(encoded, Base64.DEFAULT), StandardCharsets.UTF_8); sendPendingText(); }
@@ -146,7 +137,7 @@ public final class BridgeActivity extends Activity {
         }
     }
     @Override public void onDestroy() {
-        if (registered && node != null) Wearable.getMessageApi(this).removeListener(node.id);
-        transfer.shutdownNow(); super.onDestroy();
+        unregisterReceiver(statusReceiver); super.onDestroy();
     }
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) { super.onRequestPermissionsResult(code, permissions, results); }
 }

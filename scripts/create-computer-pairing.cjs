@@ -1,0 +1,14 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const root = path.resolve(__dirname, '..');
+const endpoint = process.argv[2], entry = process.argv[3];
+if (!/^https:\/\/[^/?#]+:\d+$/.test(endpoint || '') || !['codex', 'harness'].includes(entry)) throw new Error('Usage: node scripts/create-computer-pairing.cjs https://HOST:8790 codex|harness');
+const runtime = process.env.BAND_AGENT_RUNTIME || path.join(process.env.LOCALAPPDATA || path.join(root, '.local'), 'BandAgentDev', 'runtime');
+const cert = new crypto.X509Certificate(fs.readFileSync(path.join(runtime, 'tls-cert.pem')));
+const now = Math.floor(Date.now() / 1000);
+const payload = Buffer.from(JSON.stringify({ purpose: 'computer_pairing', repository: 'LumishadeVoyager/xiaomi-band-agent-companion', appId: 'io.github.lumishadevoyager.bandagent.' + entry, issuedAt: now, expiresAt: now + 600, endpoint, token: fs.readFileSync(path.join(runtime, 'token'), 'utf8').trim(), certSha256: crypto.createHash('sha256').update(cert.raw).digest('hex') }));
+const signature = crypto.sign('sha256', payload, fs.readFileSync(path.join(root, '.local/sign/updates/root-private.pem')));
+const out = path.join(root, '.local', 'computer-pairing-' + entry + '.json');
+fs.writeFileSync(out, JSON.stringify({ schema: 1, algorithm: 'RS256', payload: payload.toString('base64'), signature: signature.toString('base64') }), { mode: 0o600 });
+console.log('Private signed pairing invitation saved for ' + entry + '; expires in ten minutes.');

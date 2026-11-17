@@ -14,15 +14,16 @@ for (const entry of [{ id: 'codex', name: 'Codex', color: [35, 87, 154] }, { id:
   fs.mkdirSync(work, { recursive: true });
   fs.cpSync(path.join(root, 'wearable/src'), path.join(work, 'src'), { recursive: true });
   const common = path.join(work, 'src/common'); fs.mkdirSync(common, { recursive: true });
-  for (const file of ['audio-wire.cjs', 'record-capability.cjs']) fs.copyFileSync(path.join(root, 'shared', file), path.join(common, file));
+  for (const file of ['audio-wire.cjs', 'record-capability.cjs', 'diagnostics.cjs']) fs.copyFileSync(path.join(root, 'shared', file), path.join(common, file));
   entry.version = require('../package.json').version;
+  entry.versionCode = require('../package.json').buildNumber;
   fs.writeFileSync(path.join(common, 'entry.json'), JSON.stringify(entry));
   fs.writeFileSync(path.join(common, 'logo.png'), icon(entry.color));
   fs.writeFileSync(path.join(work, 'package.json'), JSON.stringify({ name: 'band-agent-' + entry.id, version: '0.1.0', dependencies: {} }));
-  fs.writeFileSync(path.join(work, 'src/manifest.json'), JSON.stringify({ package: 'io.github.lumishadevoyager.bandagent.' + entry.id, name: entry.name, versionName: entry.version, versionCode: 3, minPlatformVersion: 1200, icon: '/common/logo.png', deviceTypeList: ['watch'], features: [{ name: 'system.record' }, { name: 'system.interconnect' }, { name: 'system.app' }], config: { designWidth: 336, logLevel: 'debug' }, router: { entry: 'pages/index', pages: { 'pages/index': { component: 'index' } } } }, null, 2));
+  fs.writeFileSync(path.join(work, 'src/manifest.json'), JSON.stringify({ package: 'io.github.lumishadevoyager.bandagent.' + entry.id, name: entry.name, versionName: entry.version, versionCode: entry.versionCode, minPlatformVersion: 1200, icon: '/common/logo.png', deviceTypeList: ['watch'], features: [{ name: 'system.record' }, { name: 'system.interconnect' }, { name: 'system.app' }, { name: 'system.router' }, { name: 'system.storage' }], config: { designWidth: 336, logLevel: 'debug' }, router: { entry: 'pages/index', pages: { 'pages/index': { component: 'index' }, 'pages/update': { component: 'update' }, 'pages/diagnostics': { component: 'diagnostics' } } } }, null, 2));
   // Build outside synced storage; share the private development signing identity.
-  const sign = path.join(root, '.local/sign');
-  if (fs.existsSync(sign)) fs.cpSync(sign, path.join(work, 'sign'), { recursive: true });
+  const sign = path.join(root, '.local/sign/debug');
+  if (fs.existsSync(sign)) fs.cpSync(sign, path.join(work, 'sign/debug'), { recursive: true });
   const expectedName = 'io.github.lumishadevoyager.bandagent.' + entry.id + '.debug.' + entry.version + '.rpk';
   const artifact = path.join(work, 'dist', expectedName);
   // aiot-toolkit can print a fatal error and still exit zero. Never reuse an

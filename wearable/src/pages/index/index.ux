@@ -8,28 +8,42 @@
     <input class="action" type="button" value="检查录音接口" onclick="probeCapabilities" />
     <input class="record" type="button" value="录音 5 秒" onclick="startRecording" />
     <input class="cancel" type="button" value="取消录音" onclick="cancelRecording" />
+    <input class="action" type="button" value="应用更新" onclick="openUpdates" />
+    <input class="action" type="button" value="诊断与日志" onclick="openDiagnostics" />
   </div>
 </template>
 <script>
 import entry from '../../common/entry.json'
 import wire from '../../common/audio-wire.cjs'
 import capability from '../../common/record-capability.cjs'
+import diagnostics from '../../common/diagnostics.cjs'
 export default {
-  private: { entryName: entry.name, buildLabel: entry.version, statusText: '等待检测', detailText: '首次测试请保持此页亮屏', recording: false, recorder: null, connection: null, queue: [], sending: false, sequence: 0, byteCount: 0, audioId: '', generation: 0, alive: true },
-  onInit() { this.alive = true; this.checkPhone() },
-  onDestroy() { this.cancelRecording(); this.alive = false },
+  private: { entryName: entry.name, buildLabel: entry.version, statusText: '等待检测', detailText: '首次测试请保持此页亮屏', recording: false, recorder: null, connection: null, queue: [], sending: false, sequence: 0, byteCount: 0, audioId: '', generation: 0, alive: true, logs: null, logTimer: null },
+  onInit() { this.alive = true; try { this.logs = new diagnostics.Diagnostics(entry, require('@system.storage')); this.logs.load(() => { this.logs.record('app_started', {}); this.flushLogs(); }); this.logTimer = setInterval(() => { this.flushLogs(); }, 15000); } catch (error) {} this.checkPhone() },
+  onShow() { this.checkPhone() },
+  onDestroy() { this.cancelRecording(); if (this.logTimer) clearInterval(this.logTimer); this.alive = false },
+  flushLogs() {
+    if (!this.logs || !this.connection || !this.alive || this.recording || this.queue.length) return;
+    var events = this.logs.batch(); if (!events.length) return;
+    try { this.connection.send({ data: { protocol: 1, type: 'diag_batch', entryId: entry.id, events: events }, success: function () {}, fail: function () {} }); } catch (error) {}
+  },
   checkPhone() {
     try {
       if (!this.connection) this.connection = require('@system.interconnect').instance();
       this.connection.onmessage = (event) => {
         try {
           var message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (message.type === 'diag_ack' && message.entryId === entry.id && this.logs) { this.logs.ack(message.ids); this.flushLogs(); }
           if (message.type === 'probe_capabilities_request' && message.entryId === entry.id && this.alive) this.probeCapabilities();
           if (message.type === 'probe_status' && message.entryId === entry.id && message.audioId === this.audioId && this.alive) { this.statusText = '电脑已收到音频'; this.detailText = message.bytes + ' 字节，尚未执行任务' }
           if (message.type === 'probe_text' && message.entryId === entry.id && this.alive) { this.statusText = '电脑转写结果（未发送）'; this.detailText = String(message.text || '').slice(0, 180) }
+          if (message.type === 'draft_ready' && message.entryId === entry.id && message.status === 'unsubmitted' && this.alive) {
+            this.statusText = '转写草稿预览（未发送）'; this.detailText = String(message.text || '').slice(0, 180);
+            this.connection.send({ data: { protocol: 1, type: 'draft_ack', entryId: entry.id, id: message.id }, success: function () {}, fail: function () {} });
+          }
         } catch (error) {}
       };
-      this.connection.getReadyState({ success: (result) => { if (this.alive) { this.statusText = result.status === 1 ? '手机已连接' : '手机伴侣未连接'; if (result.status === 1) this.probeCapabilities() } }, fail: (error, code) => { if (this.alive) this.statusText = '连接错误 ' + code } });
+      this.connection.getReadyState({ success: (result) => { if (this.alive) { this.statusText = result.status === 1 ? '手机已连接' : '手机伴侣未连接'; if (result.status === 1) { this.probeCapabilities(); this.connection.send({ data: { protocol: 1, type: 'ota_hello', entryId: entry.id, versionCode: entry.versionCode, version: entry.version }, success: function () {}, fail: function () {} }) } } }, fail: (error, code) => { if (this.alive) this.statusText = '连接错误 ' + code } });
     } catch (error) { this.statusText = '通信接口不可用'; this.detailText = String(error.message || error).slice(0, 100) }
   },
   inspectRecorder() {
@@ -37,12 +51,18 @@ export default {
     try { var app = require('@system.app'); if (app && typeof app.canIUse === 'function') query = function (name) { return app.canIUse(name) } } catch (error) {}
     return capability.inspectRecord(function () { return require('@system.record') }, query);
   },
+  openUpdates() {
+    if (this.recording || this.queue.length) { this.statusText = '请等待录音处理结束'; return; }
+    try { require('@system.router').push({ uri: '/pages/update' }); } catch (error) { this.statusText = '无法打开更新页面'; }
+  },
+  openDiagnostics() { if (this.recording || this.queue.length) { this.statusText = '请等待录音处理结束'; return; } try { require('@system.router').push({ uri: '/pages/diagnostics' }); } catch (error) { this.statusText = '无法打开诊断页面'; } },
   probeCapabilities() {
     var result = this.inspectRecorder();
     var info = result.report;
     this.recorder = result.recorder;
     this.statusText = info.state === 'method_available' ? '录音方法存在，待实录' : info.state === 'module_missing' ? '当前运行时未提供录音模块' : info.state === 'start_missing' ? '录音模块缺少 start 方法' : '录音模块加载异常';
     this.detailText = info.state + '\nstart: ' + info.start + ' / default: ' + info.nestedStart + '\ncanIUse: ' + info.canIUseRecord + ' / ' + info.canIUseStart;
+    if (this.logs) { this.logs.record('record_' + info.state, info, info.state === 'method_available' ? 'info' : 'error'); this.flushLogs(); }
     if (this.connection) { try { this.connection.send({ data: { protocol: 1, type: 'probe_capabilities', entryId: entry.id, version: entry.version, record: info }, success: function () {}, fail: function () {} }); } catch (error) {} }
   },
   sendNext() {
@@ -71,7 +91,7 @@ export default {
       if (!this.connection) this.connection = require('@system.interconnect').instance();
       this.generation++; var generation = this.generation;
       this.sequence = 0; this.byteCount = 0; this.audioId = 'audio_' + Date.now().toString(36); this.queue = []; this.sending = false;
-      this.recording = true; this.statusText = '正在录音，请说话'; this.detailText = '16kHz · 单声道 · 最长5秒';
+      this.recording = true; this.statusText = '正在录音，请说话'; this.detailText = '16kHz · 单声道 · 最长5秒'; if (this.logs) this.logs.record('capture_started', {});
       this.recorder.onframerecorded = (result) => {
         if (!this.alive || generation !== this.generation) return;
         var frame = result.frameBuffer;
@@ -94,10 +114,10 @@ export default {
     if (generation !== this.generation || !this.recording) return;
     this.recording = false;
     if (!this.byteCount) { this.failCapture('未收到录音数据'); return }
-    this.statusText = '录音结束，发送中';
+    this.statusText = '录音结束，发送中'; if (this.logs) this.logs.record('capture_finished', { bytes: this.byteCount, sequence: this.sequence });
     this.enqueue(wire.envelope(entry.id, this.audioId, 'audio_end', { chunks: this.sequence, bytes: this.byteCount }));
   },
-  failCapture(message) { this.cancelRecording(); if (this.alive) this.statusText = message },
+  failCapture(message) { if (this.logs) this.logs.record('capture_failed', { phase: 'capture', bytes: this.byteCount, sequence: this.sequence }, 'error'); this.cancelRecording(); if (this.alive) this.statusText = message; this.flushLogs(); },
   cancelRecording() {
     var oldId = this.audioId; this.generation++; this.recording = false; this.queue = []; this.sending = false;
     try { if (this.recorder) this.recorder.stop() } catch (error) {}
@@ -109,9 +129,9 @@ export default {
 <style>
 .page { width:336px;height:480px;background-color:#10151b;flex-direction:column;align-items:center;padding:20px; }
 .title { color:#f5f7fa;font-size:28px;height:40px;font-weight:bold; }
-.subtitle { color:#93a7bb;font-size:15px;height:32px;text-align:center; }
-.status { color:#77d8bd;font-size:23px;height:56px;text-align:center; }
-.detail { color:#d0d8e0;font-size:16px;height:90px;text-align:center; }
-.action,.record,.cancel { width:272px;height:40px;margin-bottom:8px;font-size:18px;border-radius:12px; }
+.subtitle { color:#93a7bb;font-size:15px;height:28px;text-align:center; }
+.status { color:#77d8bd;font-size:21px;height:50px;text-align:center; }
+.detail { color:#d0d8e0;font-size:16px;height:70px;text-align:center; }
+.action,.record,.cancel { width:272px;height:34px;margin-bottom:7px;font-size:18px;border-radius:12px; }
 .action { background-color:#263a50;color:#ffffff; }.record { background-color:#137a66;color:#ffffff; }.cancel { background-color:#34343e;color:#ffffff; }
 </style>

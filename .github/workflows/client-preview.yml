@@ -1,0 +1,88 @@
+name: Publish client preview
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+concurrency:
+  group: client-preview
+  cancel-in-progress: false
+jobs:
+  signed-preview:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Import protected signing identities
+        run: node scripts/import-release-signing.cjs
+        env:
+          BAND_AGENT_APP_KEY: ${{ secrets.BAND_AGENT_APP_KEY }}
+          BAND_AGENT_APP_CERT: ${{ secrets.BAND_AGENT_APP_CERT }}
+          BAND_AGENT_UPDATE_KEY: ${{ secrets.BAND_AGENT_UPDATE_KEY }}
+      - name: Install build tools and official wearable SDK
+        shell: pwsh
+        run: |
+          npm install --prefix "$env:LOCALAPPDATA/BandAgentDev" --no-audit --no-fund aiot-toolkit@2.0.5 @aiot-toolkit/jsc@1.0.3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force .local/toolchains | Out-Null
+          Invoke-WebRequest https://cdn.cnbj3-fusion.fds.api.mi-img.com/quickapp-vela/interconnect_dev_test_demo.zip -OutFile .local/toolchains/demo.zip
+          python -c "import zipfile;from pathlib import Path;z=zipfile.ZipFile('.local/toolchains/demo.zip');p=[n for n in z.namelist() if n.endswith('/libs/xms-wearable-lib_1.4_release.aar')];assert len(p)==1;Path('.local/toolchains/wearable.aar').write_bytes(z.read(p[0]))"
+          if ((Get-FileHash .local/toolchains/wearable.aar -Algorithm SHA256).Hash -ne '9C40FD1C5409BB948523D503AF71E2978AE522C35636AFE7D64F474C0F6BC195') { throw 'Official SDK checksum changed; review required' }
+          & "$env:ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager.bat" 'platforms;android-35' 'build-tools;35.0.0'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - run: npm test
+      - run: npm run build:wearable
+      - name: Build and audit signed Android companions
+        shell: pwsh
+        run: |
+          python scripts/build-android-probe.py --jdk "$env:JAVA_HOME" --platform "$env:ANDROID_HOME/platforms/android-35" --build-tools "$env:ANDROID_HOME/build-tools/35.0.0" --wearable-aar .local/toolchains/wearable.aar
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/audit-release.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/create-update-feed.cjs
+      - name: Publish artifacts before promoting signed feed
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $folder = ".local/release/$version"
+          $notes = "开发预览：独立 Codex/Harness 入口、手机中枢、日志与应用更新。录音接口和 Agent 闭环仍在验证；不是完整语音客户端。Android 自更新需要系统确认。真机证据见 Issues #2、#6、#15。"
+          [IO.File]::WriteAllText((Join-Path (Get-Location) '.local/release-notes.md'), $notes, [Text.UTF8Encoding]::new($false))
+          $assets = @(Get-ChildItem -LiteralPath $folder -File | ForEach-Object FullName)
+          gh release create "v$version" @assets --target '${{ github.sha }}' --prerelease --title "客户端开发预览 $version" --notes-file .local/release-notes.md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $branch = "chore/ota-preview-$version"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c $branch
+          Copy-Item -LiteralPath "$folder/preview.json" -Destination updates/preview.json
+          git add updates/preview.json
+          git commit -m "Promote signed preview feed $version"
+          git push origin $branch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh pr create --base main --head $branch --title "Promote signed preview feed $version" --body 'Promote the authenticated feed only after publishing its real signed APK/RPK artifacts. Relates to #6.'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh workflow run ci.yml --ref $branch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $runId = $null
+          for ($attempt = 0; $attempt -lt 12; $attempt++) {
+            Start-Sleep -Seconds 3
+            $runId = gh run list --workflow ci.yml --branch $branch --limit 1 --json databaseId --jq '.[0].databaseId'
+            if ($runId) { break }
+          }
+          if (-not $runId) { throw 'Feed CI did not start; feed remains unmerged' }
+          gh run watch $runId --exit-status
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh pr merge $branch --merge
