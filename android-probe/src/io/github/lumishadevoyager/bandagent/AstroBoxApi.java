@@ -108,5 +108,6 @@ public final class AstroBoxApi {
         return result.getString("taskId");
     }
     public JSONObject task(String id) throws Exception { return raw("/v2/queue/tasks/" + segment(id), "GET", null, null, true); }
+    public void disconnect(String device) throws Exception { raw("/v2/devices/" + segment(device) + "/connection", "DELETE", null, null, true); }
     public void startQueue(String device) throws Exception { json("/v2/queue/" + segment(device) + "/start", new JSONObject(), true); }
 }

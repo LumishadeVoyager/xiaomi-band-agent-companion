@@ -93,7 +93,7 @@ public final class OtaCoordinator {
         try {
             String target = prefs.getString("deviceId", ""); long expected = prefs.getLong("wearPendingCode", 0);
             long actual = astro().installedVersion(target, context.getPackageName());
-            if (actual >= expected && expected > 0) { hello(actual); return; }
+            if (actual >= expected && expected > 0) { hello(actual); astro().disconnect(target); return; }
             if ("result_unknown".equals(taskId)) { sink.state("unknown", "安装结果待核对，未重复安装；请保持 AstroBox 连接", 0); return; }
             JSONObject task = astro().task(taskId); String state = task.getString("status");
             if (state.equals("failed") || state.equals("canceled")) { prefs.edit().remove("wearTaskId").remove("wearPendingCode").commit(); sink.state("failed", "手环安装" + state + "：" + task.optString("errorCode"), 0); return; }
