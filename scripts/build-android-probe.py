@@ -74,6 +74,7 @@ for entry, label in [('codex', 'Codex 伴侣（预览）'), ('harness', 'Harness
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
 <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+<uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
 <queries><package android:name="com.mi.health"/><package android:name="com.xiaomi.wearable"/><package android:name="moe.astralsight.astrobox"/></queries>
 <application android:label="{label}" android:allowBackup="false" android:usesCleartextTraffic="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
 <service android:name="io.github.lumishadevoyager.bandagent.BridgeService" android:exported="false" android:foregroundServiceType="connectedDevice"/>
