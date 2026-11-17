@@ -1,0 +1,117 @@
+<template>
+  <div class="page">
+    <text class="title">{{entryName}}</text>
+    <text class="subtitle">{{buildLabel}} · 录音能力测试</text>
+    <text class="status">{{statusText}}</text>
+    <text class="detail">{{detailText}}</text>
+    <input class="action" type="button" value="检测手机连接" onclick="checkPhone" />
+    <input class="action" type="button" value="检查录音接口" onclick="probeCapabilities" />
+    <input class="record" type="button" value="录音 5 秒" onclick="startRecording" />
+    <input class="cancel" type="button" value="取消录音" onclick="cancelRecording" />
+  </div>
+</template>
+<script>
+import entry from '../../common/entry.json'
+import wire from '../../common/audio-wire.cjs'
+import capability from '../../common/record-capability.cjs'
+export default {
+  private: { entryName: entry.name, buildLabel: entry.version, statusText: '等待检测', detailText: '首次测试请保持此页亮屏', recording: false, recorder: null, connection: null, queue: [], sending: false, sequence: 0, byteCount: 0, audioId: '', generation: 0, alive: true },
+  onInit() { this.alive = true; this.checkPhone() },
+  onDestroy() { this.cancelRecording(); this.alive = false },
+  checkPhone() {
+    try {
+      if (!this.connection) this.connection = require('@system.interconnect').instance();
+      this.connection.onmessage = (event) => {
+        try {
+          var message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (message.type === 'probe_capabilities_request' && message.entryId === entry.id && this.alive) this.probeCapabilities();
+          if (message.type === 'probe_status' && message.entryId === entry.id && message.audioId === this.audioId && this.alive) { this.statusText = '电脑已收到音频'; this.detailText = message.bytes + ' 字节，尚未执行任务' }
+          if (message.type === 'probe_text' && message.entryId === entry.id && this.alive) { this.statusText = '电脑转写结果（未发送）'; this.detailText = String(message.text || '').slice(0, 180) }
+        } catch (error) {}
+      };
+      this.connection.getReadyState({ success: (result) => { if (this.alive) { this.statusText = result.status === 1 ? '手机已连接' : '手机伴侣未连接'; if (result.status === 1) this.probeCapabilities() } }, fail: (error, code) => { if (this.alive) this.statusText = '连接错误 ' + code } });
+    } catch (error) { this.statusText = '通信接口不可用'; this.detailText = String(error.message || error).slice(0, 100) }
+  },
+  inspectRecorder() {
+    var query = null;
+    try { var app = require('@system.app'); if (app && typeof app.canIUse === 'function') query = function (name) { return app.canIUse(name) } } catch (error) {}
+    return capability.inspectRecord(function () { return require('@system.record') }, query);
+  },
+  probeCapabilities() {
+    var result = this.inspectRecorder();
+    var info = result.report;
+    this.recorder = result.recorder;
+    this.statusText = info.state === 'method_available' ? '录音方法存在，待实录' : info.state === 'module_missing' ? '当前运行时未提供录音模块' : info.state === 'start_missing' ? '录音模块缺少 start 方法' : '录音模块加载异常';
+    this.detailText = info.state + '\nstart: ' + info.start + ' / default: ' + info.nestedStart + '\ncanIUse: ' + info.canIUseRecord + ' / ' + info.canIUseStart;
+    if (this.connection) { try { this.connection.send({ data: { protocol: 1, type: 'probe_capabilities', entryId: entry.id, version: entry.version, record: info }, success: function () {}, fail: function () {} }); } catch (error) {} }
+  },
+  sendNext() {
+    if (!this.alive || this.sending || !this.queue.length) return;
+    var generation = this.generation;
+    this.sending = true;
+    try {
+      this.connection.send({ data: this.queue[0], success: () => {
+        if (!this.alive || generation !== this.generation) return;
+        this.queue.shift(); this.sending = false;
+        if (!this.queue.length && !this.recording) this.statusText = '音频已发往手机';
+        this.sendNext();
+      }, fail: (error, code) => { if (generation !== this.generation) return; this.failCapture('手机发送失败 ' + code) } });
+    } catch (error) { this.failCapture('通信调用失败') }
+  },
+  enqueue(message) {
+    if (this.queue.length >= 8) { this.failCapture('发送过慢，已停止'); return false }
+    this.queue.push(message); this.sendNext(); return true;
+  },
+  startRecording() {
+    if (this.recording || this.queue.length) return;
+    try {
+      var inspection = this.inspectRecorder();
+      this.recorder = inspection.recorder;
+      if (!this.recorder) { this.probeCapabilities(); return; }
+      if (!this.connection) this.connection = require('@system.interconnect').instance();
+      this.generation++; var generation = this.generation;
+      this.sequence = 0; this.byteCount = 0; this.audioId = 'audio_' + Date.now().toString(36); this.queue = []; this.sending = false;
+      this.recording = true; this.statusText = '正在录音，请说话'; this.detailText = '16kHz · 单声道 · 最长5秒';
+      this.recorder.onframerecorded = (result) => {
+        if (!this.alive || generation !== this.generation) return;
+        var frame = result.frameBuffer;
+        if (frame && frame.length) {
+          var message = wire.envelope(entry.id, this.audioId, 'audio_chunk', { sequence: this.sequence, data: wire.encodeBase64(frame) });
+          this.sequence++; this.byteCount += frame.length;
+          if (!this.enqueue(message)) return;
+          this.detailText = '已采集 ' + this.byteCount + ' 字节';
+        }
+        if (result.isLastFrame) this.finishCapture(generation);
+      };
+      if (!this.enqueue(wire.envelope(entry.id, this.audioId, 'audio_begin', { sampleRate: 16000, channels: 1, encoding: 'pcm_s16le' })) || generation !== this.generation) return;
+      this.recorder.start({ duration: 5000, sampleRate: 16000, numberOfChannels: 1, encodeBitRate: 256000, format: 'pcm', frameSize: 1024,
+        fail: (error, code) => { if (generation === this.generation) this.failCapture('录音失败 ' + code) },
+        complete: () => { setTimeout(() => { if (generation === this.generation && this.recording) this.failCapture('未收到录音结束帧') }, 1000) }
+      });
+    } catch (error) { this.failCapture('录音接口不可用'); this.detailText = String(error.message || error).slice(0, 100) }
+  },
+  finishCapture(generation) {
+    if (generation !== this.generation || !this.recording) return;
+    this.recording = false;
+    if (!this.byteCount) { this.failCapture('未收到录音数据'); return }
+    this.statusText = '录音结束，发送中';
+    this.enqueue(wire.envelope(entry.id, this.audioId, 'audio_end', { chunks: this.sequence, bytes: this.byteCount }));
+  },
+  failCapture(message) { this.cancelRecording(); if (this.alive) this.statusText = message },
+  cancelRecording() {
+    var oldId = this.audioId; this.generation++; this.recording = false; this.queue = []; this.sending = false;
+    try { if (this.recorder) this.recorder.stop() } catch (error) {}
+    if (oldId && this.connection) { try { this.connection.send({ data: wire.envelope(entry.id, oldId, 'audio_cancel', {}), success: function () {}, fail: function () {} }) } catch (error) {} }
+    this.audioId = ''; if (this.alive) this.statusText = '已取消';
+  }
+}
+</script>
+<style>
+.page { width:336px;height:480px;background-color:#10151b;flex-direction:column;align-items:center;padding:20px; }
+.title { color:#f5f7fa;font-size:28px;height:40px;font-weight:bold; }
+.subtitle { color:#93a7bb;font-size:15px;height:32px;text-align:center; }
+.status { color:#77d8bd;font-size:23px;height:56px;text-align:center; }
+.detail { color:#d0d8e0;font-size:16px;height:90px;text-align:center; }
+.action,.record,.cancel { width:272px;height:40px;margin-bottom:8px;font-size:18px;border-radius:12px; }
+.action { background-color:#263a50;color:#ffffff; }.record { background-color:#137a66;color:#ffffff; }.cancel { background-color:#34343e;color:#ffffff; }
+</style>

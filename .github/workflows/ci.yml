@@ -14,3 +14,23 @@ jobs:
         with:
           python-version: '3.12'
       - run: python scripts/check_repository.py
+  audio-protocol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm test
+      - run: python -m py_compile host/transcribe.py scripts/build-android-probe.py
+  wearable-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --prefix "$RUNNER_TEMP/band-agent-tools" --no-audit --no-fund aiot-toolkit@2.0.5 @aiot-toolkit/jsc@1.0.3
+      - run: npm run build:wearable
+        env:
+          BAND_AGENT_TOOLS: ${{ runner.temp }}/band-agent-tools
