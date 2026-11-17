@@ -2,6 +2,8 @@
 
 当前只完成需求和公开开发流程准备；没有客户端实现完成项。GitHub Issues/PR 是逐项进度来源。
 
+任务索引：[#1 公开开发基线](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/1)、[#2 音频与转写](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/2)、[#3 双 RPK 身份](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/3)、[#4 Codex](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/4)、[#5 Harness](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/5)、[#6 OTA](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/6)、[#7 Claude Code](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/7)、[#8 手机飞书](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/8)、[#9 多型号](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/9)、[#10 共享协议](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/10)、[#11 额度与偏好](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/11)。
+
 | 工作线 | 优先级 | 当前状态 | 交付门槛 |
 | --- | --- | --- | --- |
 | 共享音频与转写 | P0 | 待实现/真机验证 | 手环音源、完整传输、确认前不执行 |
