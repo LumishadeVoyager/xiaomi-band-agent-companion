@@ -55,25 +55,30 @@ function pageWith(recordValue) {
   return { page, sent, connection };
 }
 
-test('real page auto-diagnoses a missing module and never starts or queues audio', () => {
+test('real page requests system recording through the phone when the JS module is absent', () => {
   const { page, sent } = pageWith(undefined);
   assert.doesNotThrow(() => page.onInit());
-  assert.match(page.statusText, /未提供录音模块/);
-  const report = sent.find(message => message.type === 'probe_capabilities');
-  assert.equal(report.protocol, 1);
-  assert.equal(report.record.state, 'module_missing');
-  assert.equal(report.version, 'test-build');
+  assert.match(page.statusText, /手机已连接/);
   assert.doesNotThrow(() => page.startRecording());
+  assert.equal(page.recording, true);
+  const request = sent.find(message => message.type === 'record_request');
+  assert.equal(request.entryId, 'codex');
+  assert.equal(request.durationMs, 10000);
+  assert.ok(sent.every(message => !['audio_begin', 'audio_chunk'].includes(message.type)));
+  // Opening the system recorder can destroy the RPK page. Only an explicit
+  // cancel should terminate that independently timed native recording.
+  page.onDestroy();
+  assert.ok(!sent.some(message => message.type === 'record_cancel'));
+  page.cancelRecording();
+  assert.equal(sent.at(-1).type, 'record_cancel');
   assert.equal(page.recording, false);
-  assert.equal(page.queue.length, 0);
-  assert.ok(sent.every(message => ['probe_capabilities', 'ota_hello', 'diag_batch'].includes(message.type)));
 });
 
 test('real page responds to phone diagnostics and only accepts its entry transcript', () => {
   const { page, sent, connection } = pageWith(undefined);
   page.onInit();
   connection.onmessage({ data: { type: 'probe_capabilities_request', entryId: 'codex' } });
-  assert.equal(sent.filter(message => message.type === 'probe_capabilities').length, 2);
+  assert.equal(sent.filter(message => message.type === 'probe_capabilities').length, 1);
   connection.onmessage({ data: { type: 'probe_text', entryId: 'harness', text: 'wrong entry' } });
   assert.doesNotMatch(page.detailText, /wrong entry/);
   connection.onmessage({ data: { type: 'probe_text', entryId: 'codex', text: 'unsubmitted transcript' } });
