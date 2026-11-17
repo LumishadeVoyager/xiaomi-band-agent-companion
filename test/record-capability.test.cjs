@@ -40,12 +40,13 @@ function pageWith(recordValue) {
   const sent = [];
   const connection = { getReadyState(options) { options.success({ status: 1 }); }, send(options) { sent.push(options.data); options.success(); } };
   const source = fs.readFileSync(require.resolve('../wearable/src/pages/index/index.ux'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
-  const imports = { entry: { id: 'codex', name: 'Codex', version: 'test-build' }, wire: require('../shared/audio-wire.cjs'), capability };
+  const imports = { entry: { id: 'codex', name: 'Codex', version: 'test-build', versionCode: 4 }, wire: require('../shared/audio-wire.cjs'), capability, diagnostics: require('../shared/diagnostics.cjs') };
   const script = source.replace(/^import (\w+) from .+$/gm, 'const $1 = imports.$1;').replace('export default', 'module.exports =');
-  const sandbox = { imports, module: { exports: {} }, setTimeout, require(name) {
+  const sandbox = { imports, module: { exports: {} }, setTimeout, setInterval: () => 0, clearInterval() {}, require(name) {
     if (name === '@system.record') return recordValue;
     if (name === '@system.app') return { canIUse: () => false };
     if (name === '@system.interconnect') return { instance: () => connection };
+    if (name === '@system.storage') return { get(o) { o.success('[]'); }, set(o) { o.success(); } };
     throw new Error('unexpected module');
   } };
   vm.runInNewContext(script, sandbox);
@@ -58,20 +59,21 @@ test('real page auto-diagnoses a missing module and never starts or queues audio
   const { page, sent } = pageWith(undefined);
   assert.doesNotThrow(() => page.onInit());
   assert.match(page.statusText, /未提供录音模块/);
-  assert.equal(sent[0].protocol, 1);
-  assert.equal(sent[0].record.state, 'module_missing');
-  assert.equal(sent[0].version, 'test-build');
+  const report = sent.find(message => message.type === 'probe_capabilities');
+  assert.equal(report.protocol, 1);
+  assert.equal(report.record.state, 'module_missing');
+  assert.equal(report.version, 'test-build');
   assert.doesNotThrow(() => page.startRecording());
   assert.equal(page.recording, false);
   assert.equal(page.queue.length, 0);
-  assert.ok(sent.every(message => message.type === 'probe_capabilities'));
+  assert.ok(sent.every(message => ['probe_capabilities', 'ota_hello', 'diag_batch'].includes(message.type)));
 });
 
 test('real page responds to phone diagnostics and only accepts its entry transcript', () => {
   const { page, sent, connection } = pageWith(undefined);
   page.onInit();
   connection.onmessage({ data: { type: 'probe_capabilities_request', entryId: 'codex' } });
-  assert.equal(sent.length, 2);
+  assert.equal(sent.filter(message => message.type === 'probe_capabilities').length, 2);
   connection.onmessage({ data: { type: 'probe_text', entryId: 'harness', text: 'wrong entry' } });
   assert.doesNotMatch(page.detailText, /wrong entry/);
   connection.onmessage({ data: { type: 'probe_text', entryId: 'codex', text: 'unsubmitted transcript' } });

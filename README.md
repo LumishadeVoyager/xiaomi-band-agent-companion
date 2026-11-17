@@ -29,6 +29,8 @@
 
 开发探针可构建安装，尚不是日常 Agent 客户端。10 Pro 已实测应用安装和手机通信；当前固件的第三方 `record.start` 不可用。系统录音经小米运动健康同步、ADB 取出及电脑本地转写已验证；免手机操作和无线自动取音仍未解决。各项进度以 GitHub Issues、PR、检查结果和 Releases 为准，不能把探针作为完整语音版或 OTA 更新源。
 
+正在推进手机中枢与可诊断预览：手环本地日志、手机持久 outbox、电脑 HTTPS 接收、签名应用更新和隔离 Codex 修复工作器。AstroBox 仅参与安装/调试；日志与录音由手机直接桥接电脑。手机→电脑日志上传已实测，完整手环日志、N→N+1 OTA 和自动修复发布仍分别待验收，进度见 [#6](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/6) 与 [#15](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/15)。
+
 当前核心验证目标是小米手环 10 Pro。初始验证环境使用 Android/realme UI 与 Windows；其他手机及手环只能在验证后标支持。
 
 ## 上游与许可

@@ -1,0 +1,47 @@
+<template>
+  <div class="page">
+    <text class="title">诊断与日志</text>
+    <text class="version">{{versionText}}</text>
+    <text class="status">{{statusText}}</text>
+    <text class="detail">{{detailText}}</text>
+    <input class="button" type="button" value="刷新与上传" onclick="refresh" />
+    <input class="button" type="button" value="返回" onclick="back" />
+  </div>
+</template>
+<script>
+import entry from '../../common/entry.json'
+export default {
+  private: { versionText: entry.name + ' ' + entry.version, statusText: '读取本地日志', detailText: '', connection: null, alive: true },
+  onInit() {
+    try {
+      this.connection = require('@system.interconnect').instance();
+      this.connection.onmessage = (event) => {
+        if (!this.alive) return;
+        try {
+          var message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (message.entryId !== entry.id || message.type !== 'diag_status') return;
+          this.statusText = message.computerPaired ? '手机已配对电脑' : '手机尚未配对电脑';
+          this.detailText = '手机待上传：' + message.pending + '\n' + (message.lastUpload ? '最近一次上传已确认' : '尚无电脑接收确认') + (message.lastError ? '\n连接：' + message.lastError : '');
+        } catch (error) { this.statusText = '诊断状态格式错误'; }
+      };
+    } catch (error) { this.statusText = '手机通信接口不可用'; }
+    this.refresh();
+  },
+  refresh() {
+    try {
+      require('@system.storage').get({ key: 'agent_diagnostics_v1', default: '[]', success: (value) => { if (!this.alive) return; try { var events = JSON.parse(value); this.detailText = '手环缓存：' + events.length + (events.length ? '\n最近：' + events[events.length - 1].code : ''); } catch (error) { this.detailText = '本地日志格式异常'; } }, fail: () => { if (this.alive) this.detailText = '本地日志读取失败'; } });
+      if (this.connection) this.connection.send({ data: { protocol: 1, type: 'diag_status_request', entryId: entry.id }, success: function () {}, fail: () => { if (this.alive) this.statusText = '手机未连接，日志仍保留'; } });
+    } catch (error) { this.statusText = '诊断接口不可用'; }
+  },
+  back() { try { require('@system.router').back(); } catch (error) {} },
+  onDestroy() { this.alive = false; }
+}
+</script>
+<style>
+.page { width:336px;height:480px;background-color:#10151b;flex-direction:column;align-items:center;padding:20px; }
+.title { color:#ffffff;font-size:28px;height:44px; }
+.version { color:#93a7bb;font-size:16px;height:44px;text-align:center; }
+.status { color:#77d8bd;font-size:22px;height:68px;text-align:center; }
+.detail { color:#d0d8e0;font-size:18px;height:170px;text-align:center; }
+.button { width:272px;height:40px;margin-bottom:12px;background-color:#263a50;color:#ffffff;font-size:18px;border-radius:12px; }
+</style>

@@ -1,4 +1,4 @@
-"""Build two debug-only Android relays using a locally obtained official Xiaomi SDK."""
+"""Build signed Android preview companions using the official Xiaomi SDK."""
 import argparse
 from pathlib import Path
 import os
@@ -16,6 +16,7 @@ parser.add_argument('--platform', type=Path, required=True, help='Directory cont
 parser.add_argument('--build-tools', type=Path, required=True)
 parser.add_argument('--wearable-aar', type=Path, required=True, help='Official SDK AAR, never committed')
 parser.add_argument('--openssl', type=Path, default=Path(r'C:\Program Files\Git\usr\bin\openssl.exe'))
+parser.add_argument('--development-usb', action='store_true', help='PRIVATE builds only: embed the local USB audio token; never publish these APKs')
 args = parser.parse_args()
 work_root = Path(os.environ.get('LOCALAPPDATA', ROOT / '.local')) / 'BandAgentDev' / 'android-build'
 
@@ -40,29 +41,44 @@ if not key.exists() or not certificate.exists():
 der_key = sign / 'private.pk8'
 run([args.openssl, 'pkcs8', '-topk8', '-inform', 'PEM', '-outform', 'DER', '-in', key, '-out', der_key, '-nocrypt'])
 token = ROOT / '.local/receiver/token'
-if not token.is_file():
+if args.development_usb and not token.is_file():
     raise SystemExit('Start npm run dev:receiver first to initialize the private USB development token')
 
 import json
 version = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version']
-for entry, label in [('codex', 'Codex 录音测试'), ('harness', 'Harness 录音测试')]:
+version_code = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['buildNumber']
+update_public = ROOT / 'updates/trust-root.pem'
+if not update_public.is_file():
+    raise SystemExit('Run node scripts/init-update-signing.cjs first; update root must stay pinned')
+for entry, label in [('codex', 'Codex 伴侣（预览）'), ('harness', 'Harness 伴侣（预览）')]:
     work = work_root / entry
     classes, dex, assets = work / 'classes', work / 'dex', work / 'assets'
     for directory in [classes, dex, assets]:
         directory.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(args.wearable_aar) as archive:
         (work / 'wearable.jar').write_bytes(archive.read('classes.jar'))
-    (assets / 'development.json').write_text(json.dumps({'entryId': entry, 'token': token.read_text().strip()}), encoding='utf-8')
+    (assets / 'development.json').write_text(json.dumps({'entryId': entry, 'development': args.development_usb, 'token': token.read_text().strip() if args.development_usb else ''}), encoding='utf-8')
+    shutil.copyfile(update_public, assets / 'update-public.pem')
     rpk_candidates = list((ROOT / '.local/artifacts' / entry).glob(f'*.debug.{version}.rpk'))
-    if rpk_candidates:
-        shutil.copyfile(rpk_candidates[0], assets / 'wearable.rpk')
+    if len(rpk_candidates) != 1:
+        raise SystemExit('Build the matching current RPK before the Android APK')
+    shutil.copyfile(rpk_candidates[0], assets / 'wearable.rpk')
     package = 'io.github.lumishadevoyager.bandagent.' + entry
     manifest = work / 'AndroidManifest.xml'
-    manifest.write_text(f'''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package}" android:versionCode="3" android:versionName="{version}">
-<uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35"/>
+    manifest.write_text(f'''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package}" android:versionCode="{version_code}" android:versionName="{version}">
+<uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35"/>
 <uses-permission android:name="android.permission.INTERNET"/>
-<queries><package android:name="com.mi.health"/><package android:name="com.xiaomi.wearable"/></queries>
+<uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+<queries><package android:name="com.mi.health"/><package android:name="com.xiaomi.wearable"/><package android:name="moe.astralsight.astrobox"/></queries>
 <application android:label="{label}" android:allowBackup="false" android:usesCleartextTraffic="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+<service android:name="io.github.lumishadevoyager.bandagent.BridgeService" android:exported="false" android:foregroundServiceType="connectedDevice"/>
+<receiver android:name="io.github.lumishadevoyager.bandagent.InstallResultReceiver" android:exported="false"/>
+<receiver android:name="io.github.lumishadevoyager.bandagent.RestartReceiver" android:exported="false"><intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter></receiver>
 <provider android:name="io.github.lumishadevoyager.bandagent.ProbeFileProvider" android:authorities="{package}.probe-files" android:exported="false" android:grantUriPermissions="true"/>
 <activity android:name="io.github.lumishadevoyager.bandagent.BridgeActivity" android:exported="true" android:launchMode="singleTask"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
 </application></manifest>''', encoding='utf-8')
@@ -73,7 +89,7 @@ for entry, label in [('codex', 'Codex 录音测试'), ('harness', 'Harness 录�
     with zipfile.ZipFile(class_jar, 'w') as archive:
         for file in classes.rglob('*.class'):
             archive.write(file, file.relative_to(classes).as_posix())
-    run([args.jdk / 'bin/java.exe', '-cp', args.build_tools / 'lib/d8.jar', 'com.android.tools.r8.D8', '--min-api', '26', '--lib', android_jar, '--output', dex, class_jar, work / 'wearable.jar'])
+    run([args.jdk / 'bin/java.exe', '-cp', args.build_tools / 'lib/d8.jar', 'com.android.tools.r8.D8', '--min-api', '33', '--lib', android_jar, '--output', dex, class_jar, work / 'wearable.jar'])
     unsigned = work / 'unsigned.apk'
     run([args.build_tools / 'aapt2.exe', 'link', '--manifest', manifest, '-I', android_jar, '-A', assets, '-o', unsigned])
     with zipfile.ZipFile(unsigned, 'a') as archive:
@@ -84,4 +100,4 @@ for entry, label in [('codex', 'Codex 录音测试'), ('harness', 'Harness 录�
     output.parent.mkdir(parents=True, exist_ok=True)
     run([args.jdk / 'bin/java.exe', '-jar', args.build_tools / 'lib/apksigner.jar', 'sign', '--key', der_key, '--cert', certificate, '--out', output, aligned])
     run([args.jdk / 'bin/java.exe', '-jar', args.build_tools / 'lib/apksigner.jar', 'verify', output])
-    print(f'Built and verified development relay: {entry}')
+    print(f'Built and verified signed companion: {entry}')

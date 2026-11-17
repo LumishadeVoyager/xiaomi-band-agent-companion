@@ -1,0 +1,46 @@
+<template>
+  <div class="page">
+    <text class="title">应用更新</text>
+    <text class="version">{{versionText}}</text>
+    <text class="status">{{statusText}}</text>
+    <text class="detail">{{detailText}}</text>
+    <input class="button" type="button" value="检查并更新" onclick="checkUpdate" />
+    <input class="button" type="button" value="返回" onclick="goBack" />
+  </div>
+</template>
+<script>
+import entry from '../../common/entry.json'
+export default {
+  private: { versionText: entry.name + ' ' + entry.version, statusText: '等待手机连接', detailText: '由手机下载并安装，无需手动传包', connection: null, alive: true },
+  onInit() {
+    try {
+      this.connection = require('@system.interconnect').instance();
+      this.connection.onmessage = (event) => {
+        if (!this.alive) return;
+        try {
+          var message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (message.type !== 'ota_status' || message.entryId !== entry.id) return;
+          this.statusText = String(message.text || '').slice(0, 110);
+          this.detailText = message.phase === 'downloading' || message.phase === 'installing' ? '进度 ' + (message.progress || 0) + '%' : message.phase === 'phone_confirmation' ? 'Android 要求在手机确认安装；请查看通知' : '当前安装：' + entry.version;
+        } catch (error) { this.statusText = '更新状态格式错误'; }
+      };
+      this.connection.getReadyState({ success: (result) => { this.statusText = result.status === 1 ? '手机已连接，可检查更新' : '请连接手机伴侣'; if (result.status === 1) this.send('ota_hello', false); }, fail: () => { this.statusText = '手机连接查询失败'; } });
+    } catch (error) { this.statusText = '更新通信接口不可用'; }
+  },
+  send(type, apply) {
+    if (!this.connection) return;
+    this.connection.send({ data: { protocol: 1, type: type, entryId: entry.id, versionCode: entry.versionCode, version: entry.version, apply: apply }, success: function () {}, fail: () => { if (this.alive) this.statusText = '发送失败，请重试'; } });
+  },
+  checkUpdate() { this.statusText = '已请求手机检查更新'; this.send('ota_check', true); },
+  goBack() { try { require('@system.router').back(); } catch (error) {} },
+  onDestroy() { this.alive = false; }
+}
+</script>
+<style>
+.page { width:336px;height:480px;background-color:#10151b;flex-direction:column;align-items:center;padding:20px; }
+.title { color:#ffffff;font-size:28px;height:44px; }
+.version { color:#93a7bb;font-size:16px;height:44px;text-align:center; }
+.status { color:#77d8bd;font-size:22px;height:150px;text-align:center; }
+.detail { color:#d0d8e0;font-size:17px;height:90px;text-align:center; }
+.button { width:272px;height:40px;margin-bottom:12px;background-color:#263a50;color:#ffffff;font-size:18px;border-radius:12px; }
+</style>

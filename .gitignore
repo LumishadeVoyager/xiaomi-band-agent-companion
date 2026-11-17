@@ -10,6 +10,7 @@ __pycache__/
 *.pfx
 *.p12
 *.pem
+!updates/trust-root.pem
 *.apk
 *.rpk
 *.exe
