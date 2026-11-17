@@ -1,11 +1,13 @@
 package io.github.lumishadevoyager.bandagent;
 
 import android.content.Context;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
-import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.ECGenParameterSpec;
 import java.util.Arrays;
 import java.util.Base64;
 import org.json.*;
@@ -14,16 +16,24 @@ import org.json.*;
 public final class AstroBoxApi {
     private final File identityFile;
     private JSONObject identity;
+    private final PrivateKey signingKey;
     private String token;
     private long tokenExpires;
     public AstroBoxApi(Context context) throws Exception {
         identityFile = new File(context.getFilesDir(), "astrobox-client.json");
+        String alias = "band-agent-astrobox";
+        KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore"); keyStore.load(null);
+        if (!keyStore.containsAlias(alias)) {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("EC", "AndroidKeyStore");
+            generator.initialize(new KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY).setAlgorithmParameterSpec(new ECGenParameterSpec("ed25519")).setDigests(KeyProperties.DIGEST_NONE).build());
+            generator.generateKeyPair();
+        }
+        signingKey = (PrivateKey) keyStore.getKey(alias, null);
         if (identityFile.isFile()) identity = new JSONObject(new String(java.nio.file.Files.readAllBytes(identityFile.toPath()), StandardCharsets.UTF_8));
         else {
-            KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-            byte[] encoded = keys.getPublic().getEncoded();
+            byte[] encoded = keyStore.getCertificate(alias).getPublicKey().getEncoded();
             byte[] raw = Arrays.copyOfRange(encoded, encoded.length - 32, encoded.length);
-            identity = new JSONObject().put("clientName", "Band Agent " + context.getPackageName().substring(context.getPackageName().lastIndexOf('.') + 1)).put("publicKey", url64(raw)).put("privateKey", Base64.getEncoder().encodeToString(keys.getPrivate().getEncoded())).put("fingerprint", SignedFeed.sha256(raw));
+            identity = new JSONObject().put("clientName", "Band Agent " + context.getPackageName().substring(context.getPackageName().lastIndexOf('.') + 1)).put("publicKey", url64(raw)).put("fingerprint", SignedFeed.sha256(raw));
             save();
         }
     }
@@ -61,8 +71,7 @@ public final class AstroBoxApi {
             JSONObject pairing = json("/v2/auth/pairing-requests", new JSONObject().put("clientName", identity.optString("clientName", "Band Agent Companion")).put("publicKey", identity.getString("publicKey")).put("requestedScopes", new JSONArray(new String[] { "device.read", "device.control", "resource.read", "resource.install", "queue.read", "queue.control" })).put("deviceAllowlist", new JSONArray()), false);
             identity.put("pairingId", pairing.getString("pairingId")); save(); throw new IOException("astrobox_pairing_required");
         }
-        PrivateKey key = KeyFactory.getInstance("Ed25519").generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(identity.getString("privateKey"))));
-        Signature signer = Signature.getInstance("Ed25519"); signer.initSign(key); signer.update(Base64.getUrlDecoder().decode(challenge.getString("signingPayload")));
+        Signature signer = Signature.getInstance("Ed25519"); signer.initSign(signingKey); signer.update(Base64.getUrlDecoder().decode(challenge.getString("signingPayload")));
         JSONObject session = json("/v2/auth/sessions", new JSONObject().put("challengeId", challenge.getString("challengeId")).put("signature", url64(signer.sign())), false);
         token = session.getString("token"); tokenExpires = java.time.Instant.parse(session.getString("expiresAt")).toEpochMilli(); return token;
     }

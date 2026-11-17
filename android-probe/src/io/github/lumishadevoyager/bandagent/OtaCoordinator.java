@@ -81,6 +81,7 @@ public final class OtaCoordinator {
                 sink.state("installing", "手环安装已入队，正在读取结果", 0);
             }
         } catch (Exception error) {
+            android.util.Log.e("BandAgentBridge", "update failed", error);
             String reason = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
             if (reason.equals("http_404")) sink.state("no_release", "当前通道尚未发布可安装更新", 0);
             else if (reason.equals("astrobox_pairing_required")) { prefs.edit().putBoolean("installerSetupPending", true).apply(); sink.state("installer_setup", "首次更新请在 AstroBox 允许 Band Agent 安装通路", 0); }
