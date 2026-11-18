@@ -1,5 +1,7 @@
 .research/
 .local/
+.playwright-cli/
+output/playwright/
 node_modules/
 target/
 dist/

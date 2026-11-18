@@ -4,6 +4,8 @@
 
 用户暂停语音 Agent，转向独立 PowerProfile 手环监看。当前工作见 [#23](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/23) 与 [规格/验收](./POWERPROFILE.md)。阶段一为只读数据适配、原生风格 RPK、手机同步和 Codex 完成通知；阶段二为真机显示、手机锁屏、通知中心震动验收。历史语音/双后端/OTA 未完成项保留历史状态，不作为新监看首版前提，也不宣称已完成。
 
+同日新增表盘：采用“基础原生表盘 + 详情应用 + 系统通知”，表盘必须有时间、日期、手环电量；其他统计可不在表盘显示。[路线与 G0–G6 验收](./POWERPROFILE_WATCHFACE.md) 已补充，当前仅设计预览，尚无 PowerProfile 原生表盘安装包。
+
 以下为方向变更前的历史工作线。
 
 当前进入开发探针阶段；尚无完整 Agent 客户端。GitHub Issues/PR 是逐项进度来源。
