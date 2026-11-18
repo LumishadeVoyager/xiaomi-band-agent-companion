@@ -1,7 +1,7 @@
 {
   "name": "xiaomi-band-agent-companion",
-  "version": "0.1.0-preview.10",
-  "buildNumber": 14,
+  "version": "0.1.0-preview.11",
+  "buildNumber": 15,
   "private": true,
   "description": "Shared wearable voice capture and development receiver",
   "scripts": {

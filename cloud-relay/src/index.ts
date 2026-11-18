@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { DAY, identity, normalizeSnapshot, eventList, ids, deviceReport, readBody, type Snapshot, type Event, type Report } from './protocol.ts';
+import { DAY, identity, normalizeSnapshot, eventList, ids, deviceReport, phoneReport, readBody, type Snapshot, type Event, type Report } from './protocol.ts';
 
 function response(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -67,19 +67,25 @@ export class PairRelay extends DurableObject<Env> {
     }
     return (await this.ctx.storage.get('mijia-report')) ?? null;
   }
+  async phoneReport(value?: Record<string, unknown>): Promise<unknown> {
+    if(value) await this.ctx.storage.put('phone-report',{...value,receivedAt:new Date().toISOString()});
+    return (await this.ctx.storage.get('phone-report')) ?? null;
+  }
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const route = new URL(request.url).pathname;
     if (route === '/health' && request.method === 'GET') return response({ service: 'powerprofile-relay', protocol: 1 });
-    if (request.method !== 'POST' || !['/relay/publish', '/powerprofile/poll', '/powerprofile/ack', '/powerprofile/device-report', '/relay/mijia-config', '/relay/mijia-report', '/powerprofile/mijia-config', '/powerprofile/mijia-report'].includes(route)) return response({ error: 'not_found' }, 404);
+    if (request.method !== 'POST' || !['/relay/publish', '/powerprofile/poll', '/powerprofile/ack', '/powerprofile/device-report', '/relay/mijia-config', '/relay/mijia-report', '/powerprofile/mijia-config', '/powerprofile/mijia-report', '/powerprofile/phone-report', '/relay/phone-report'].includes(route)) return response({ error: 'not_found' }, 404);
     if (!/^[a-f0-9]{64}$/.test(env.PC_TOKEN || '') || !/^[a-f0-9]{64}$/.test(env.PHONE_TOKEN || '') || !/^[a-f0-9]{32}$/.test(env.CHANNEL_ID || '')) return response({ error: 'relay_not_configured' }, 503);
     const supplied = request.headers.get('Authorization') || '';
     if (!(await matches(supplied, 'Bearer ' + (route.startsWith('/relay/') ? env.PC_TOKEN : env.PHONE_TOKEN)))) return response({ error: 'unauthorized' }, 401);
     try {
       const body = identity(await readBody(request, ['/relay/publish', '/relay/mijia-config'].includes(route) ? 32768 : 8192));
       const relay = env.PAIRS.getByName(env.CHANNEL_ID);
+      if (route === '/powerprofile/phone-report') {await relay.phoneReport(phoneReport(body));return response({ok:true});}
+      if (route === '/relay/phone-report') return response({report:await relay.phoneReport()});
       if (route === '/relay/mijia-config') {
         const value = body.config as Record<string, unknown> | undefined;
         if (!value || typeof value.nonce !== 'string' || !/^[A-Za-z0-9+/]{16}$/.test(value.nonce) || typeof value.ciphertext !== 'string' || value.ciphertext.length > 16000 || value.ciphertext.length < 100 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value.ciphertext)) throw new Error('invalid_config');

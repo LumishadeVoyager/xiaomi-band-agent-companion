@@ -34,9 +34,12 @@ def main():
     parser.add_argument('--test-purifier', action='store_true', help='Authorize one phone-side purifier toggle and restoration only')
     parser.add_argument('--publish', action='store_true')
     parser.add_argument('--status', action='store_true')
+    parser.add_argument('--phone-status', action='store_true')
     args = parser.parse_args()
     settings = json.loads((ROOT / '.local/powerprofile-relay.json').read_text(encoding='utf-8-sig'))
     identity = {'protocol': 1, 'entryId': 'powerprofile'}
+    if args.phone_status:
+        print(json.dumps(post(settings, '/relay/phone-report', identity), ensure_ascii=True)); return
     if args.status:
         print(json.dumps(post(settings, '/relay/mijia-report', identity), ensure_ascii=True)); return
     if not args.publish: parser.error('--publish required; no implicit device command')

@@ -14,7 +14,7 @@ export default {
       return response;
     }
     const allowed = request.method === 'GET' && url.pathname === '/health'
-      || request.method === 'POST' && ['/relay/publish', '/powerprofile/poll', '/powerprofile/ack', '/powerprofile/device-report', '/relay/mijia-config', '/relay/mijia-report', '/powerprofile/mijia-config', '/powerprofile/mijia-report'].includes(url.pathname);
+      || request.method === 'POST' && ['/relay/publish', '/powerprofile/poll', '/powerprofile/ack', '/powerprofile/device-report', '/relay/mijia-config', '/relay/mijia-report', '/powerprofile/mijia-config', '/powerprofile/mijia-report', '/powerprofile/phone-report', '/relay/phone-report'].includes(url.pathname);
     if (!allowed || url.search) return Response.json({ error: 'not_found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } });
     try {
       // Service binding calls the existing Worker without a public DNS hop.

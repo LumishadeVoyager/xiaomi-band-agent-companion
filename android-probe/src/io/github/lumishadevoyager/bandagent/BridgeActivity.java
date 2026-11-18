@@ -30,6 +30,7 @@ import org.json.JSONObject;
 /** Development-only bridge: no phone microphone, cloud calls, or Agent execution. */
 public final class BridgeActivity extends Activity {
     private TextView status;
+    private PowerProfilePhoneUi phoneUi;
     private Node node;
     private boolean registered;
     private String entry;
@@ -48,6 +49,12 @@ public final class BridgeActivity extends Activity {
             token = config.getString("token");
             development = config.optBoolean("development", false);
         } catch (Exception error) { throw new IllegalStateException("Missing development configuration", error); }
+        if (entry.equals("powerprofile")) {
+            getWindow().setStatusBarColor(android.graphics.Color.rgb(10,14,20));getWindow().setNavigationBarColor(android.graphics.Color.rgb(10,14,20));
+            phoneUi=new PowerProfilePhoneUi(this);setContentView(phoneUi.create(this::connect,this::launchWearApp,this::installWearApp));
+            // Cloud sync and control start even when the band is not nearby.
+            try{startForegroundService(new Intent(this,BridgeService.class));}catch(RuntimeException ignored){phoneUi.note("后台服务启动失败，请检查应用权限");}
+        } else {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(48, 80, 48, 48);
@@ -69,6 +76,7 @@ public final class BridgeActivity extends Activity {
         CheckBox automatic = new CheckBox(this); automatic.setText("自动更新 · preview 测试通道"); automatic.setChecked(getSharedPreferences("ota", 0).getBoolean("autoUpdates", true));
         automatic.setOnCheckedChangeListener((button, checked) -> getSharedPreferences("ota", 0).edit().putBoolean("autoUpdates", checked).apply()); layout.addView(automatic);
         setContentView(layout);
+        }
         registerReceiver(statusReceiver, new IntentFilter(getPackageName() + ".STATUS"), Context.RECEIVER_NOT_EXPORTED);
         show((entry.equals("powerprofile") ? "PowerProfile" : entry.equals("codex") ? "Codex" : "DeepSeek Harness") + " 开发预览\n" + getSharedPreferences("ota", 0).getString("lastStatus", "等待连接与配对"));
         if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, 10);
@@ -79,7 +87,9 @@ public final class BridgeActivity extends Activity {
     private void button(LinearLayout layout, String title, Runnable action) {
         Button button = new Button(this); button.setText(title); button.setOnClickListener(v -> action.run()); layout.addView(button);
     }
-    private void show(String text) { runOnUiThread(() -> status.setText(text + ("powerprofile".equals(entry) ? "\n更新：" + getSharedPreferences("ota", 0).getString("lastUpdateStatus", "等待自动检查") : ""))); }
+    private void show(String text) { runOnUiThread(() -> {if(phoneUi!=null)phoneUi.note(text);else status.setText(text);}); }
+    @Override protected void onResume(){super.onResume();if(phoneUi!=null)phoneUi.start();}
+    @Override protected void onPause(){if(phoneUi!=null)phoneUi.stop();super.onPause();}
     private void connect() {
         Wearable.getNodeApi(this).getConnectedNodes().addOnSuccessListener(nodes -> {
             if (nodes.isEmpty()) { show("小米运动健康未返回已连接设备"); return; }

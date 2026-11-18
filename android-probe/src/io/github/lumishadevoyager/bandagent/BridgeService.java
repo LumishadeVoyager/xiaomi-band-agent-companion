@@ -14,13 +14,19 @@ import org.json.JSONObject;
 /** Owns the SDK listener across Activity closure and application updates. */
 public final class BridgeService extends Service implements OtaCoordinator.Sink {
     public static final String CHANNEL = "band_agent_bridge";
+    public static volatile boolean running;
+    private final String session=java.util.UUID.randomUUID().toString().replace("-", "");
+    private long startedAt, startedElapsed;
+    private android.net.ConnectivityManager.NetworkCallback networkCallback;
     private final ScheduledExecutorService work = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService otaWork = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService powerWork = Executors.newSingleThreadScheduledExecutor();
-    private String entry, token, nodeId;
+    private String entry, token;
+    private volatile String nodeId;
     private volatile boolean recording;
-    private boolean registered, registering;
+    private volatile boolean registered, registering;
+    private long nodeQueryAt;
     private OtaCoordinator updates;
     private DiagnosticStore diagnostics;
     private ComputerLink computer;
@@ -38,7 +44,8 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "手环连接与更新", NotificationManager.IMPORTANCE_LOW));
         PendingIntent open = PendingIntent.getActivity(this, 1, new Intent(this, BridgeActivity.class), PendingIntent.FLAG_IMMUTABLE);
-        try { startForeground(1, new Notification.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle("Band Agent 连接服务").setContentText("保持手环消息与自动更新连接").setContentIntent(open).setOngoing(true).build()); }
+        boolean monitor=getPackageName().endsWith(".powerprofile");
+        try { startForeground(1, new Notification.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle(monitor?"PowerProfile 后台连接":"Band Agent 连接服务").setContentText(monitor?"手环同步、米家控制与自动更新":"保持手环消息与自动更新连接").setContentIntent(open).setCategory(Notification.CATEGORY_SERVICE).setOnlyAlertOnce(true).setOngoing(true).build()); }
         catch (SecurityException error) { getSharedPreferences("ota", 0).edit().putString("lastStatus", "后台连接权限未满足，请打开手机伴侣完成设置").apply(); stopSelf(); return; }
         try {
             JSONObject config = new JSONObject(new String(OtaCoordinator.read(getAssets().open("development.json"), 8192), StandardCharsets.UTF_8));
@@ -46,18 +53,29 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
             if ("powerprofile".equals(entry)) { powerprofile = new PowerProfileBridge(this); mijia = new MijiaPower(this); }
             else diagnostics.phone(entry, ApkUpdateInstaller.current(this), "phone_service_started", new JSONObject().put("phase", "started"), false);
         } catch (Exception error) { state("error", "更新配置加载失败：" + error.getClass().getSimpleName(), 0); stopSelf(); return; }
+        running=true;startedAt=System.currentTimeMillis();startedElapsed=SystemClock.elapsedRealtime();
+        getSharedPreferences("runtime",0).edit().putLong("startedAt",startedAt).putBoolean("wearConnected",false).apply();
         otaWork.scheduleWithFixedDelay(() -> updates.check(true, true), 20, powerprofile == null ? 21600 : 900, TimeUnit.SECONDS);
         otaWork.scheduleWithFixedDelay(() -> updates.poll(), 5, 5, TimeUnit.SECONDS);
         work.scheduleWithFixedDelay(this::findNode, 5, 30, TimeUnit.SECONDS);
         maintenance.scheduleWithFixedDelay(this::uploadDiagnostics, 3, 10, TimeUnit.SECONDS);
         maintenance.scheduleWithFixedDelay(this::pollComputer, 7, 15, TimeUnit.SECONDS);
         if (mijia != null) powerWork.scheduleWithFixedDelay(() -> { mijia.tick(computer); powerState(); }, 4, 5, TimeUnit.SECONDS);
+        if (powerprofile != null) {
+            maintenance.scheduleWithFixedDelay(this::phoneReport, 12, 60, TimeUnit.SECONDS);
+            networkCallback=new android.net.ConnectivityManager.NetworkCallback(){@Override public void onAvailable(android.net.Network network){
+                if(!maintenance.isShutdown())maintenance.execute(BridgeService.this::pollComputer);
+                if(!work.isShutdown())work.execute(BridgeService.this::findNode);
+            }};
+            try{getSystemService(android.net.ConnectivityManager.class).registerDefaultNetworkCallback(networkCallback);}catch(RuntimeException ignored){networkCallback=null;}
+        }
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (updates == null) { stopSelf(); return START_NOT_STICKY; }
         if (intent != null) {
             String supplied = intent.getStringExtra("nodeId");
-            if (supplied != null) nodeId = supplied;
+            if (supplied != null && !registered) nodeId = supplied;
+            if ("reconnect".equals(intent.getAction())) { detachNode(); maintenance.execute(this::pollComputer); }
             if ("check".equals(intent.getAction()) && updates != null) otaWork.execute(() -> updates.check(true, false));
             if ("installer_setup".equals(intent.getAction())) otaWork.execute(() -> updates.prepareInstaller());
             if ("powerprofile_test_notice".equals(intent.getAction()) && powerprofile != null) maintenance.schedule(() -> {
@@ -69,16 +87,20 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         findNode(); return START_STICKY;
     }
     private void findNode() {
-        if (registered || registering) return;
-        registering = true;
-        Wearable.getNodeApi(this).getConnectedNodes().addOnSuccessListener(nodes -> {
-            if (nodes.size() != 1) { registering = false; state("disconnected", "等待小米运动健康连接唯一手环", 0); return; }
-            nodeId = nodes.get(0).id;
+        if (registering && SystemClock.elapsedRealtime()-nodeQueryAt<20000) return;
+        registering = true;nodeQueryAt=SystemClock.elapsedRealtime();
+        try { Wearable.getNodeApi(this).getConnectedNodes().addOnSuccessListener(nodes -> {
+            if (nodes.size() != 1) { detachNode(); state("disconnected", "手环离线，保持云端连接并自动重连", 0); return; }
+            String found=nodes.get(0).id;
+            if(registered && found.equals(nodeId)){registering=false;return;}
+            detachNode();nodeId=found;registering=true;
             Wearable.getMessageApi(this).addListener(nodeId, listener)
-                .addOnSuccessListener(ignored -> { registered = true; registering = false; state("connected", "后台监听就绪", 0); })
+                .addOnSuccessListener(ignored -> { if(!found.equals(nodeId))return;registered = true; registering = false;getSharedPreferences("runtime",0).edit().putBoolean("wearConnected",true).apply();state("connected", "手环已连接，后台同步中", 0); })
                 .addOnFailureListener(error -> { registering = false; state("error", "手环消息授权待完成", 0); });
-        }).addOnFailureListener(error -> { registering = false; });
+        }).addOnFailureListener(error -> { detachNode(); }); } catch(RuntimeException ignored){detachNode();}
     }
+    private void detachNode(){String previous=nodeId;nodeId=null;registered=false;registering=false;if(previous!=null)try{Wearable.getMessageApi(this).removeListener(previous);}catch(RuntimeException ignored){}getSharedPreferences("runtime",0).edit().putBoolean("wearConnected",false).apply();}
+    private void phoneReport(){try{if(computer==null||!computer.internet())return;computer.post("/powerprofile/phone-report",PhoneStatus.report(this,session,startedAt,(SystemClock.elapsedRealtime()-startedElapsed)/1000,registered));}catch(Exception ignored){}}
     public boolean busy() { return recording; }
     public void state(String phase, String text, int progress) {
         android.util.Log.i("BandAgentBridge", "phase=" + phase + " " + text);
@@ -91,12 +113,13 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         }
     }
     private void send(String destination, JSONObject message) { Wearable.getMessageApi(this).sendMessage(destination, message.toString().getBytes(StandardCharsets.UTF_8)); }
-    private void powerState() { if (nodeId != null && mijia != null) try { send(nodeId, mijia.state()); } catch (Exception ignored) {} }
+    private void powerState() { if (mijia != null) try { JSONObject current=mijia.state();getSharedPreferences("runtime",0).edit().putString("powerTarget",current.optString("target")).putString("powerPhase",current.optString("phase")).putBoolean("powerAvailable",current.optBoolean("available")).apply();if(nodeId!=null)send(nodeId,current); } catch (Exception ignored) {} }
     private void receive(String source, byte[] bytes) {
         try {
             JSONObject message = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
             if (!entry.equals(message.optString("entryId")) || message.optInt("protocol") != 1) return;
             String type = message.optString("type"); nodeId = source;
+            getSharedPreferences("runtime",0).edit().putLong("lastWearAt",System.currentTimeMillis()).apply();
             if (powerprofile != null) {
                 if ("powerprofile_power_request".equals(type)) powerWork.execute(() -> { try { mijia.request(computer, message); } catch (Exception ignored) {} powerState(); });
                 if ("powerprofile_request".equals(type) || "powerprofile_hello".equals(type)) powerWork.execute(() -> { mijia.tick(computer); powerState(); });
@@ -167,7 +190,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private void pollComputer() {
         try {
             if (computer == null || !computer.paired() || recording) return;
-            if (powerprofile != null) { powerprofile.poll(computer, nodeId); state("computer_synced", powerprofile.statusText(), 0); return; }
+            if (powerprofile != null) { powerprofile.poll(computer, nodeId); getSharedPreferences("runtime",0).edit().putLong("lastSyncAt",System.currentTimeMillis()).apply();state("computer_synced", powerprofile.statusText(), 0); return; }
             org.json.JSONArray commands = computer.post("/poll", new JSONObject().put("entryId", entry)).getJSONArray("commands");
             for (int i = 0; i < commands.length(); i++) {
                 JSONObject command = commands.getJSONObject(i); String type = command.getString("type");
@@ -186,5 +209,5 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         }
     }
     @Override public IBinder onBind(Intent intent) { return null; }
-    @Override public void onDestroy() { if (registered && nodeId != null) Wearable.getMessageApi(this).removeListener(nodeId); work.shutdownNow(); maintenance.shutdownNow(); otaWork.shutdownNow(); powerWork.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }
+    @Override public void onDestroy() { running=false;if(networkCallback!=null)try{getSystemService(android.net.ConnectivityManager.class).unregisterNetworkCallback(networkCallback);}catch(RuntimeException ignored){}detachNode();work.shutdownNow(); maintenance.shutdownNow(); otaWork.shutdownNow(); powerWork.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }
 }

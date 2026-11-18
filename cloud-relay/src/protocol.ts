@@ -55,6 +55,18 @@ export function deviceReport(value: unknown, now = Date.now()): Report {
   if (!Number.isSafeInteger(v.versionCode) || (v.versionCode as number) <= 0) throw new Error('invalid_version');
   return { snapshotAt: stamp(v.snapshotAt), versionCode: v.versionCode as number, receivedAt: new Date(now).toISOString(), transport: 'internet' };
 }
+export function phoneReport(value: unknown, now = Date.now()): Record<string, unknown> {
+  const v=identity(value), out: Record<string, unknown>={};
+  if(typeof v.session !== 'string' || !/^[a-f0-9]{32}$/.test(v.session)) throw new Error('invalid_session');
+  out.session=v.session;
+  for(const key of ['phoneVersion','startedAt','uptimeSeconds','lastSyncAt','lastWearAt']) {
+    if(typeof v[key] !== 'number' || !Number.isSafeInteger(v[key]) || (v[key] as number)<0 || ((key.endsWith('At')) && (v[key] as number)>now+300000)) throw new Error('invalid_runtime_number');
+    out[key]=v[key];
+  }
+  if((v.phoneVersion as number)<1 || (v.startedAt as number)<1) throw new Error('invalid_runtime_identity');
+  for(const key of ['wearConnected','batteryUnrestricted','notificationsAllowed']) {if(typeof v[key] !== 'boolean')throw new Error('invalid_runtime_boolean');out[key]=v[key];}
+  return out;
+}
 export async function readBody(request: Request, limit: number): Promise<unknown> {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('Content-Type') || '')) throw new Error('json_required');
   if (Number(request.headers.get('Content-Length')) > limit) throw new Error('body_too_large');

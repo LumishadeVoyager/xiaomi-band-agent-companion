@@ -59,6 +59,13 @@ try {
   assert.equal(receipt.report.lastTest.phase,'restored');assert.equal(JSON.stringify(receipt).includes('DROP'),false);
   assert.equal((await post('/powerprofile/mijia-report',PHONE_TOKEN,{...report,target:'arbitrary-device'})).status,400);
   console.log('Mijia sealed pairing and phone receipt: role separation, opaque storage and test receipt retention passed.');
+  const health={...identity,session:'d'.repeat(32),phoneVersion:15,startedAt:Date.now(),uptimeSeconds:60,lastSyncAt:Date.now(),lastWearAt:0,wearConnected:false,batteryUnrestricted:true,notificationsAllowed:true,deviceId:'DROP'};
+  assert.equal((await post('/powerprofile/phone-report',PC_TOKEN,health)).status,401);
+  assert.equal((await post('/powerprofile/phone-report',PHONE_TOKEN,health)).status,200);
+  assert.equal((await post('/relay/phone-report',PHONE_TOKEN,identity)).status,401);
+  const runtime=await (await post('/relay/phone-report',PC_TOKEN,identity)).json();assert.equal(runtime.report.uptimeSeconds,60);assert.equal(runtime.report.wearConnected,false);assert.equal(JSON.stringify(runtime).includes('DROP'),false);
+  assert.equal((await post('/powerprofile/phone-report',PHONE_TOKEN,{...health,lastSyncAt:-1})).status,400);
+  console.log('Phone runtime receipts: reconnect-state, battery status, role separation and private field filtering passed.');
   console.log('Workers + Pages runtime integration passed: bound gateway, roles, privacy, persistence, duplicate upload, device receipt, phone ACK and stale ordering.');
 } catch(error) { console.error(error); console.error(output.slice(-5000)); process.exitCode=1; }
 finally { for(const processChild of [gatewayChild,child].filter(Boolean)){if(process.platform==='win32')spawnSync('taskkill',['/PID',String(processChild.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});else processChild.kill('SIGTERM');} }
