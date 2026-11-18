@@ -71,12 +71,12 @@ public final class OtaCoordinator {
             if (!apply) { sink.state("available", "发现更新，点击更新以安装", 0); return; }
             if (phone != null) {
                 if (prefs.getLong("apkPendingCode", 0) > phoneCode && context.getPackageManager().getPackageInstaller().getSessionInfo(prefs.getInt("apkSession", -1)) == null) prefs.edit().remove("apkPendingCode").remove("apkSession").commit();
-                if (prefs.getLong("apkPendingCode", 0) > phoneCode) { sink.state("phone_confirmation", "手机更新待系统确认，请查看手机通知", 0); return; }
+                if (prefs.getLong("apkPendingCode", 0) > phoneCode) { sink.state("phone_submitted", "手机更新任务处理中；只有系统要求确认时才会显示确认通知", 0); return; }
                 File apk = download(phone);
                 if (sink.busy()) { sink.state("deferred", "录音处理中，安装已延期", 0); return; }
                 ApkUpdateInstaller.install(context, apk, phone);
                 prefs.edit().putLong("highestAndroid", phone.getLong("versionCode")).commit();
-                sink.state("phone_confirmation", "手机更新已校验，等待系统安装确认", 100); return;
+                sink.state("phone_submitted", "手机更新已校验并提交系统，正在等待安装结果", 100); return;
             }
             if (wearable != null) {
                 if (wearable.getLong("bridgeMinCode") > phoneCode) throw new SecurityException("phone_update_required_first");

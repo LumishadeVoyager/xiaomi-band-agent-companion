@@ -52,6 +52,7 @@ public final class BridgeActivity extends Activity {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(48, 80, 48, 48);
         status = new TextView(this); status.setTextSize(20);
+        if (entry.equals("powerprofile")) { status.setMinLines(4); status.setMaxLines(4); status.setEllipsize(android.text.TextUtils.TruncateAt.END); }
         layout.addView(status);
         button(layout, "连接手环并授权", this::connect);
         button(layout, "打开对应手环应用", this::launchWearApp);

@@ -68,6 +68,7 @@ for entry, label in ([('powerprofile', 'PowerProfile 手环监看（预览）')]
     manifest = work / 'AndroidManifest.xml'
     manifest.write_text(f'''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package}" android:versionCode="{version_code}" android:versionName="{version}">
 <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35"/>
+<uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
 <uses-permission android:name="android.permission.INTERNET"/>
 <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
