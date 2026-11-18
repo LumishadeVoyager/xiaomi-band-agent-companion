@@ -22,6 +22,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private OtaCoordinator updates;
     private DiagnosticStore diagnostics;
     private ComputerLink computer;
+    private PowerProfileBridge powerprofile;
     private String previousState = "";
     private final OnMessageReceivedListener listener = (id, bytes) -> {
         if (bytes.length > 8192) return;
@@ -39,10 +40,13 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         try {
             JSONObject config = new JSONObject(new String(OtaCoordinator.read(getAssets().open("development.json"), 8192), StandardCharsets.UTF_8));
             entry = config.getString("entryId"); token = config.optString("token", ""); updates = new OtaCoordinator(this, entry, this); diagnostics = new DiagnosticStore(this); computer = new ComputerLink(this);
-            diagnostics.phone(entry, ApkUpdateInstaller.current(this), "phone_service_started", new JSONObject().put("phase", "started"), false);
+            if ("powerprofile".equals(entry)) powerprofile = new PowerProfileBridge(this);
+            else diagnostics.phone(entry, ApkUpdateInstaller.current(this), "phone_service_started", new JSONObject().put("phase", "started"), false);
         } catch (Exception error) { state("error", "更新配置加载失败：" + error.getClass().getSimpleName(), 0); stopSelf(); return; }
-        maintenance.scheduleWithFixedDelay(() -> updates.check(true, true), 20, 21600, TimeUnit.SECONDS);
-        maintenance.scheduleWithFixedDelay(() -> updates.poll(), 5, 5, TimeUnit.SECONDS);
+        if (powerprofile == null) {
+            maintenance.scheduleWithFixedDelay(() -> updates.check(true, true), 20, 21600, TimeUnit.SECONDS);
+            maintenance.scheduleWithFixedDelay(() -> updates.poll(), 5, 5, TimeUnit.SECONDS);
+        }
         work.scheduleWithFixedDelay(this::findNode, 5, 30, TimeUnit.SECONDS);
         maintenance.scheduleWithFixedDelay(this::uploadDiagnostics, 3, 10, TimeUnit.SECONDS);
         maintenance.scheduleWithFixedDelay(this::pollComputer, 7, 15, TimeUnit.SECONDS);
@@ -52,7 +56,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         if (intent != null) {
             String supplied = intent.getStringExtra("nodeId");
             if (supplied != null) nodeId = supplied;
-            if ("check".equals(intent.getAction()) && updates != null) maintenance.execute(() -> updates.check(true, false));
+            if ("check".equals(intent.getAction()) && updates != null) { if (powerprofile == null) maintenance.execute(() -> updates.check(true, false)); else state("preview", "PowerProfile 预览尚未发布 OTA", 0); }
             if ("reload_link".equals(intent.getAction())) maintenance.execute(() -> { try { computer = new ComputerLink(this); uploadDiagnostics(); } catch (Exception error) { state("error", "电脑配对加载失败", 0); } });
         }
         findNode(); return START_STICKY;
@@ -71,7 +75,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     public boolean busy() { return recording; }
     public void state(String phase, String text, int progress) {
         android.util.Log.i("BandAgentBridge", "phase=" + phase + " " + text);
-        try { String key = phase + ":" + text; if (diagnostics != null && !key.equals(previousState)) { previousState = key; diagnostics.phone(entry, ApkUpdateInstaller.current(this), "bridge_" + phase.replaceAll("[^a-z0-9_]", ""), new JSONObject().put("phase", phase).put("errorCode", phase.equals("error") ? text.substring(0, Math.min(100, text.length())) : ""), phase.equals("error")); } } catch (Exception ignored) {}
+        try { String key = phase + ":" + text; if (powerprofile == null && diagnostics != null && !key.equals(previousState)) { previousState = key; diagnostics.phone(entry, ApkUpdateInstaller.current(this), "bridge_" + phase.replaceAll("[^a-z0-9_]", ""), new JSONObject().put("phase", phase).put("errorCode", phase.equals("error") ? text.substring(0, Math.min(100, text.length())) : ""), phase.equals("error")); } } catch (Exception ignored) {}
         getSharedPreferences("ota", 0).edit().putString("lastStatus", text).putString("phase", phase).apply();
         sendBroadcast(new Intent(getPackageName() + ".STATUS").setPackage(getPackageName()).putExtra("text", text));
         if (nodeId != null && entry != null) {
@@ -84,6 +88,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
             JSONObject message = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
             if (!entry.equals(message.optString("entryId")) || message.optInt("protocol") != 1) return;
             String type = message.optString("type"); nodeId = source;
+            if (powerprofile != null) { if ("powerprofile_request".equals(type)) maintenance.execute(this::pollComputer); return; }
             if (type.equals("probe_capabilities")) {
                 String report = "手环 " + message.optString("version") + " 接口诊断：" + message.optJSONObject("record");
                 android.util.Log.i("BandAgentProbe", report); state("diagnostic", report, 0); return;
@@ -123,6 +128,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         } finally { connection.disconnect(); }
     }
     private void uploadDiagnostics() {
+        if (powerprofile != null) return;
         try {
             if (diagnostics == null || computer == null || !computer.paired() || recording) return;
             org.json.JSONArray events = diagnostics.pending(); if (events.length() == 0) return;
@@ -137,6 +143,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private void pollComputer() {
         try {
             if (computer == null || !computer.paired() || recording) return;
+            if (powerprofile != null) { powerprofile.poll(computer, nodeId); state("synced", "PowerProfile 统计已同步；通知与震动请在小米运动健康核实", 0); return; }
             org.json.JSONArray commands = computer.post("/poll", new JSONObject().put("entryId", entry)).getJSONArray("commands");
             for (int i = 0; i < commands.length(); i++) {
                 JSONObject command = commands.getJSONObject(i); String type = command.getString("type");
@@ -145,7 +152,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
                     send(nodeId, new JSONObject().put("protocol", 1).put("type", "draft_ready").put("entryId", entry).put("id", command.getString("id")).put("audioId", command.getString("audioId")).put("text", command.getString("text")).put("status", "unsubmitted"));
                 }
             }
-        } catch (Exception ignored) { /* Offline polling retries; durable commands are not retired. */ }
+        } catch (Exception ignored) { if (powerprofile != null) state("offline", "电脑未连接，保留上次快照并自动重试", 0); /* Durable commands are not retired. */ }
     }
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onDestroy() { if (registered && nodeId != null) Wearable.getMessageApi(this).removeListener(nodeId); work.shutdownNow(); maintenance.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }

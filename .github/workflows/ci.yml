@@ -37,6 +37,9 @@ jobs:
       - run: npm run build:wearable
         env:
           BAND_AGENT_TOOLS: ${{ runner.temp }}/band-agent-tools
+      - run: npm run build:powerprofile
+        env:
+          BAND_AGENT_TOOLS: ${{ runner.temp }}/band-agent-tools
   android-update-policy:
     runs-on: ubuntu-latest
     steps:

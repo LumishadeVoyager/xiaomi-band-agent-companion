@@ -1,5 +1,7 @@
 # Xiaomi Band Agent Companion
 
+> **当前方向（2026-11-18）：PowerProfile 手环监看。** 用户暂停语音 Agent 开发。新独立入口查看电脑用时、估算用电、游戏时间、AI Token、Codex 5 小时与周额度，并经手机系统通知同步完成提醒。代码与构建不代表真机验收，具体设置/限制见 [PowerProfile 说明](./docs/POWERPROFILE.md)。以下语音内容保留为历史记录。
+
 小米手环上的语音 Agent 入口：手环录音，经手机桥接，在电脑上继续已有会话并查看结果。
 
 **当前阶段：技术验证。已构建两个独立 RPK 和对应 Android 测试伴侣，具备 USB 音频接收与本地转写代码。尚未完成 Agent 语音闭环和 OTA。**

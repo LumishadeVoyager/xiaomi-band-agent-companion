@@ -1,0 +1,61 @@
+<template>
+  <div class="page">
+    <list class="list">
+      <list-item type="header" class="heading"><div class="column"><text class="title">PowerProfile</text><text class="muted">{{day}} · {{status}}</text></div></list-item>
+      <list-item type="usage" class="card"><div class="column"><text class="label blue">今日电脑用时</text><text class="value">{{usage}}</text></div></list-item>
+      <list-item type="energy" class="card"><div class="column"><text class="label green">今日估算用电</text><text class="value">{{energy}}</text></div></list-item>
+      <list-item type="game" class="card"><div class="column"><text class="label orange">今日游戏</text><text class="value">{{game}}</text></div></list-item>
+      <list-item type="ai" class="card"><div class="column"><text class="label purple">今日 AI Token</text><text class="value">{{tokens}}</text></div></list-item>
+      <list-item type="five" class="quota"><div class="column"><text class="label blue">Codex · 5 小时</text><text class="value">{{five}}</text><progress class="bar" percent="{{fiveProgress}}" /><text class="muted">{{fiveReset}}</text></div></list-item>
+      <list-item type="week" class="quota"><div class="column"><text class="label purple">Codex · 本周</text><text class="value">{{week}}</text><progress class="bar purplebar" percent="{{weekProgress}}" /><text class="muted">{{weekReset}}</text></div></list-item>
+      <list-item type="footer" class="footer"><div class="column"><text class="muted">{{freshness}}</text><text class="muted">{{syncedAt}}</text><input class="refresh" type="button" value="刷新" onclick="refresh" /></div></list-item>
+    </list>
+  </div>
+</template>
+<script>
+import view from '../../common/powerprofile-view.cjs'
+export default {
+  private: { day: '今日', status: '等待手机', usage: '未统计', energy: '未统计', game: '未统计', tokens: '未统计', five: '未知', fiveProgress: 0, fiveReset: '等待额度数据', week: '未知', weekProgress: 0, weekReset: '等待额度数据', freshness: '等待电脑统计', syncedAt: '', connection: null, last: null, timer: null, alive: true },
+  onInit() {
+    this.alive = true;
+    try { require('@system.storage').get({ key: 'powerprofile.snapshot.v1', success: (raw) => { try { if (!this.last && this.alive) { this.render(JSON.parse(raw)); this.status = '缓存 · 等待同步'; } } catch (error) {} } }); } catch (error) {}
+    try {
+      this.connection = require('@system.interconnect').instance();
+      this.connection.onmessage = (event) => {
+        try {
+          var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (!this.alive || data.protocol !== 1 || data.entryId !== 'powerprofile' || data.type !== 'powerprofile_snapshot') return;
+          if (this.last && Date.parse(data.generatedAt) < Date.parse(this.last.generatedAt)) return;
+          this.render(data); this.status = '手机已同步';
+          require('@system.storage').set({ key: 'powerprofile.snapshot.v1', value: JSON.stringify(data) });
+        } catch (error) { this.status = '数据待重试'; }
+      };
+      this.timer = setInterval(() => { if (this.last) this.render(this.last); this.refresh(); }, 60000);
+      this.refresh();
+    } catch (error) { this.status = '手机通道不可用'; }
+  },
+  onShow() { this.refresh(); },
+  render(data) { var model = view.present(data, Date.now()); this.last = data; for (var key in model) this[key] = model[key]; this.syncedAt = '快照 ' + new Date(Date.parse(data.generatedAt) + 8 * 3600000).toISOString().slice(11, 16) + ' 北京时间'; },
+  refresh() {
+    if (!this.connection || !this.alive) return;
+    this.status = '等待同步';
+    try { this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_request' }, success: function () {}, fail: () => { if (this.alive) this.status = '手机未连接 · 缓存'; } }); } catch (error) { this.status = '手机未连接 · 缓存'; }
+  },
+  onDestroy() { this.alive = false; if (this.timer) clearInterval(this.timer); }
+}
+</script>
+<style>
+.page { width:336px;height:480px;background-color:#000000; }
+.list { width:336px;height:480px;padding-left:18px;padding-right:18px; }
+.column { width:100%;flex-direction:column; }
+.heading { height:92px;padding-top:18px;padding-left:8px; }
+.title { font-size:28px;font-weight:bold;color:#ffffff; }
+.muted { font-size:16px;color:#999999;margin-top:6px; }
+.card,.quota { background-color:#191919;border-radius:26px;margin-bottom:10px;padding:18px;height:112px; }
+.quota { height:166px; }
+.label { font-size:20px; }
+.value { font-size:32px;font-weight:bold;color:#ffffff;margin-top:7px; }
+.blue { color:#65aaff; }.green { color:#92dc5d; }.orange { color:#ffb357; }.purple { color:#c09bff; }
+.bar { width:260px;height:8px;margin-top:10px;color:#65aaff;background-color:#333333; }.purplebar { color:#c09bff; }
+.footer { height:150px;padding:8px; }.refresh { width:270px;height:48px;margin-top:12px;border-radius:24px;color:#ffffff;background-color:#252525;font-size:22px; }
+</style>

@@ -7,7 +7,9 @@
   "scripts": {
     "test": "node --test test/*.test.cjs",
     "build:wearable": "node scripts/build-wearable.cjs",
-    "dev:receiver": "node host/audio-receiver.cjs"
+    "dev:receiver": "node host/audio-receiver.cjs",
+    "build:powerprofile": "node scripts/build-wearable.cjs --powerprofile",
+    "dev:powerprofile": "node host/powerprofile-server.cjs"
   },
   "engines": { "node": ">=24" }
 }

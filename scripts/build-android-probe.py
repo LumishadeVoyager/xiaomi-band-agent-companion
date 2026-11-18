@@ -17,6 +17,7 @@ parser.add_argument('--build-tools', type=Path, required=True)
 parser.add_argument('--wearable-aar', type=Path, required=True, help='Official SDK AAR, never committed')
 parser.add_argument('--openssl', type=Path, default=Path(r'C:\Program Files\Git\usr\bin\openssl.exe'))
 parser.add_argument('--development-usb', action='store_true', help='PRIVATE builds only: embed the local USB audio token; never publish these APKs')
+parser.add_argument('--powerprofile', action='store_true', help='Build only the independent read-only PowerProfile companion')
 args = parser.parse_args()
 work_root = Path(os.environ.get('LOCALAPPDATA', ROOT / '.local')) / 'BandAgentDev' / 'android-build'
 
@@ -50,7 +51,7 @@ version_code = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['
 update_public = ROOT / 'updates/trust-root.pem'
 if not update_public.is_file():
     raise SystemExit('Run node scripts/init-update-signing.cjs first; update root must stay pinned')
-for entry, label in [('codex', 'Codex 伴侣（预览）'), ('harness', 'Harness 伴侣（预览）')]:
+for entry, label in ([('powerprofile', 'PowerProfile 手环监看（预览）')] if args.powerprofile else [('codex', 'Codex 伴侣（预览）'), ('harness', 'Harness 伴侣（预览）')]):
     work = work_root / entry
     classes, dex, assets = work / 'classes', work / 'dex', work / 'assets'
     for directory in [classes, dex, assets]:

@@ -1,5 +1,11 @@
 # 并行工作线与进度
 
+## 2026-11-18：当前开发方向
+
+用户暂停语音 Agent，转向独立 PowerProfile 手环监看。当前工作见 [#23](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/23) 与 [规格/验收](./POWERPROFILE.md)。阶段一为只读数据适配、原生风格 RPK、手机同步和 Codex 完成通知；阶段二为真机显示、手机锁屏、通知中心震动验收。历史语音/双后端/OTA 未完成项保留历史状态，不作为新监看首版前提，也不宣称已完成。
+
+以下为方向变更前的历史工作线。
+
 当前进入开发探针阶段；尚无完整 Agent 客户端。GitHub Issues/PR 是逐项进度来源。
 
 任务索引：[#1 公开开发基线](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/1)、[#2 音频与转写](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/2)、[#3 双 RPK 身份](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/3)、[#4 Codex](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/4)、[#5 Harness](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/5)、[#6 OTA](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/6)、[#7 Claude Code](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/7)、[#8 手机飞书](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/8)、[#9 多型号](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/9)、[#10 共享协议](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/10)、[#11 额度与偏好](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/11)。

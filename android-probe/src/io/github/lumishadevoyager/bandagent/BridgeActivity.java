@@ -56,14 +56,18 @@ public final class BridgeActivity extends Activity {
         button(layout, "连接手环并授权", this::connect);
         button(layout, "打开对应手环应用", this::launchWearApp);
         button(layout, "用 AstroBox 安装对应测试包", this::installWearApp);
-        button(layout, "检查并安装更新", () -> startForegroundService(new Intent(this, BridgeService.class).setAction("check")));
+        if (!entry.equals("powerprofile")) button(layout, "检查并安装更新", () -> startForegroundService(new Intent(this, BridgeService.class).setAction("check")));
+        if (entry.equals("powerprofile")) {
+            button(layout, "通知设置", () -> startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())));
+            TextView hint = new TextView(this); hint.setText("在小米运动健康的 App 通知中启用本应用；手环震动受系统勿扰设置控制。监看每 15 秒同步，额度每分钟读取。预览未启用 OTA。"); layout.addView(hint);
+        }
         button(layout, "打开 AstroBox（首次允许安装通路）", () -> { Intent launch = getPackageManager().getLaunchIntentForPackage("moe.astralsight.astrobox"); if (launch != null) startActivity(launch); });
         button(layout, "允许本应用更新手机安装包", () -> startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))));
         CheckBox automatic = new CheckBox(this); automatic.setText("自动更新 · preview 测试通道"); automatic.setChecked(getSharedPreferences("ota", 0).getBoolean("autoUpdates", true));
-        automatic.setOnCheckedChangeListener((button, checked) -> getSharedPreferences("ota", 0).edit().putBoolean("autoUpdates", checked).apply()); layout.addView(automatic);
+        automatic.setOnCheckedChangeListener((button, checked) -> getSharedPreferences("ota", 0).edit().putBoolean("autoUpdates", checked).apply()); if (!entry.equals("powerprofile")) layout.addView(automatic);
         setContentView(layout);
         registerReceiver(statusReceiver, new IntentFilter(getPackageName() + ".STATUS"), Context.RECEIVER_NOT_EXPORTED);
-        show((entry.equals("codex") ? "Codex" : "DeepSeek Harness") + " 开发预览\n" + getSharedPreferences("ota", 0).getString("lastStatus", "尚未接入 Agent 执行"));
+        show((entry.equals("powerprofile") ? "PowerProfile" : entry.equals("codex") ? "Codex" : "DeepSeek Harness") + " 开发预览\n" + getSharedPreferences("ota", 0).getString("lastStatus", "等待连接与配对"));
         if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, 10);
         connect();
         acceptDevelopmentIntent(getIntent());

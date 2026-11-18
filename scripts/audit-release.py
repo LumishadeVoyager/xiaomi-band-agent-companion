@@ -2,10 +2,12 @@
 import json
 from pathlib import Path
 import zipfile
+import sys
 
 root = Path(__file__).resolve().parents[1]
 package = json.loads((root / 'package.json').read_text(encoding='utf-8'))
-for entry in ['codex', 'harness']:
+entries = ['powerprofile'] if '--powerprofile' in sys.argv else ['codex', 'harness']
+for entry in entries:
     with zipfile.ZipFile(root / f'.local/artifacts/band-agent-{entry}-probe.apk') as apk:
         config = json.loads(apk.read('assets/development.json'))
         assert config['entryId'] == entry and config['token'] == '' and config['development'] is False, 'Private development APK must never be published'
@@ -16,4 +18,4 @@ for entry in ['codex', 'harness']:
             assert manifest['package'] == 'io.github.lumishadevoyager.bandagent.' + entry
             assert manifest['versionName'] == package['version'] and manifest['versionCode'] == package['buildNumber']
         assert not any(name.endswith(('.pem', '.pk8', '.keystore', '.p12')) and name != 'assets/update-public.pem' for name in apk.namelist())
-print('Both release APKs contain no development token/private key; embedded RPK versions and update roots match')
+print('Audited ' + ', '.join(entries) + ': no development token/private key; embedded RPK versions and update roots match (not device acceptance)')
