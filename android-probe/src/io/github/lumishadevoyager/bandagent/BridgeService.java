@@ -57,6 +57,10 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
             String supplied = intent.getStringExtra("nodeId");
             if (supplied != null) nodeId = supplied;
             if ("check".equals(intent.getAction()) && updates != null) { if (powerprofile == null) maintenance.execute(() -> updates.check(true, false)); else state("preview", "PowerProfile 预览尚未发布 OTA", 0); }
+            if ("powerprofile_test_notice".equals(intent.getAction()) && powerprofile != null) maintenance.schedule(() -> {
+                try { powerprofile.testNotification(); state("test_notice", "测试通知已发布到手机；手环收件与震动需实机确认", 0); }
+                catch (Exception error) { state("error", "测试通知未发布，请检查通知权限与渠道", 0); }
+            }, 10, TimeUnit.SECONDS);
             if ("reload_link".equals(intent.getAction())) maintenance.execute(() -> { try { computer = new ComputerLink(this); uploadDiagnostics(); } catch (Exception error) { state("error", "电脑配对加载失败", 0); } });
         }
         findNode(); return START_STICKY;
@@ -88,7 +92,17 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
             JSONObject message = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
             if (!entry.equals(message.optString("entryId")) || message.optInt("protocol") != 1) return;
             String type = message.optString("type"); nodeId = source;
-            if (powerprofile != null) { if ("powerprofile_request".equals(type)) maintenance.execute(this::pollComputer); return; }
+            if (powerprofile != null) {
+                if ("powerprofile_request".equals(type)) maintenance.execute(this::pollComputer);
+                if ("powerprofile_snapshot_applied".equals(type)) {
+                    final String snapshotAt = message.optString("snapshotAt"); final int versionCode = message.optInt("versionCode");
+                    maintenance.execute(() -> { try {
+                        computer.post("/powerprofile/device-report", new JSONObject().put("protocol", 1).put("entryId", entry).put("snapshotAt", snapshotAt).put("versionCode", versionCode));
+                        state("wear_ack", "手环已应用统计快照 · 版本码 " + versionCode, 0);
+                    } catch (Exception ignored) {} });
+                }
+                return;
+            }
             if (type.equals("probe_capabilities")) {
                 String report = "手环 " + message.optString("version") + " 接口诊断：" + message.optJSONObject("record");
                 android.util.Log.i("BandAgentProbe", report); state("diagnostic", report, 0); return;
@@ -143,7 +157,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private void pollComputer() {
         try {
             if (computer == null || !computer.paired() || recording) return;
-            if (powerprofile != null) { powerprofile.poll(computer, nodeId); state("synced", "PowerProfile 统计已同步；通知与震动请在小米运动健康核实", 0); return; }
+            if (powerprofile != null) { powerprofile.poll(computer, nodeId); state("computer_synced", "电脑统计已读取；手环显示以设备回执为准", 0); return; }
             org.json.JSONArray commands = computer.post("/poll", new JSONObject().put("entryId", entry)).getJSONArray("commands");
             for (int i = 0; i < commands.length(); i++) {
                 JSONObject command = commands.getJSONObject(i); String type = command.getString("type");

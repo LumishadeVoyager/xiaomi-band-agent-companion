@@ -31,7 +31,7 @@ public final class ComputerLink {
     public JSONObject post(String route, JSONObject data) throws Exception { return request(route, data.toString().getBytes(StandardCharsets.UTF_8)); }
     public JSONObject request(String route, byte[] body) throws Exception {
         if (config == null) throw new IOException("computer_not_paired");
-        if (!(route.equals("/powerprofile/poll") || route.equals("/powerprofile/ack") || route.equals("/diagnostics") || route.equals("/audio") || route.equals("/poll") || route.equals("/ack") || route.matches("/recording\\?entryId=(codex|harness)&audioId=audio_[a-z0-9]+"))) throw new SecurityException("invalid_computer_route");
+        if (!(route.equals("/powerprofile/device-report") || route.equals("/powerprofile/poll") || route.equals("/powerprofile/ack") || route.equals("/diagnostics") || route.equals("/audio") || route.equals("/poll") || route.equals("/ack") || route.matches("/recording\\?entryId=(codex|harness)&audioId=audio_[a-z0-9]+"))) throw new SecurityException("invalid_computer_route");
         URL url = new URL(config.getString("endpoint") + route); final String pin = config.getString("certSha256");
         X509TrustManager trust = new X509TrustManager() {
             public java.security.cert.X509Certificate[] getAcceptedIssuers() { return new java.security.cert.X509Certificate[0]; }

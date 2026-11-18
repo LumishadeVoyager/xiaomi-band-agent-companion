@@ -19,6 +19,15 @@ public final class PowerProfileBridge {
         notifications = service.getSystemService(NotificationManager.class);
         notifications.createNotificationChannel(new NotificationChannel(CHANNEL, "Codex 完成提醒", NotificationManager.IMPORTANCE_DEFAULT));
     }
+    public void testNotification() throws Exception {
+        if (service.checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED || !notifications.areNotificationsEnabled()) throw new java.io.IOException("notifications_disabled");
+        NotificationChannel channel = notifications.getNotificationChannel(CHANNEL);
+        if (channel == null || channel.getImportance() == NotificationManager.IMPORTANCE_NONE) throw new java.io.IOException("notification_channel_disabled");
+        // Explicit diagnostic, never a synthetic Codex completion or delivery ACK.
+        notifications.notify("powerprofile_acceptance_test", 3, new Notification.Builder(service, CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_notify_chat).setContentTitle("PowerProfile 通知测试")
+            .setContentText("这是一条手机到手环的通知链路验收测试").setAutoCancel(true).build());
+    }
     public void poll(ComputerLink computer, String nodeId) throws Exception {
         if (!computer.paired()) return;
         JSONObject identity = new JSONObject().put("protocol", 1).put("entryId", "powerprofile");

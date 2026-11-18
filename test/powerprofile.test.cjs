@@ -7,6 +7,7 @@ const { snapshot } = require('../host/powerprofile-snapshot.cjs');
 const { normalize } = require('../host/codex-rate-limits.cjs');
 const { present } = require('../shared/powerprofile-view.cjs');
 const { Completions } = require('../host/codex-completions.cjs');
+const vm = require('node:vm');
 test('Beijing date, overlapping ledgers, merged tokens and missing values', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'powerprofile-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const put = (file, data) => fs.writeFileSync(path.join(root, file), '\uFEFF' + JSON.stringify(data));
@@ -47,4 +48,25 @@ test('completion baseline, partial lines, duplicate scan and durable ACK', t => 
   fs.appendFileSync(file, event()+'\n');
   const reopened = new Completions(db); reopened.started = Date.now()+1000;
   assert.equal(reopened.pending().length,0); reopened.scan(root); assert.equal(reopened.pending().length,1); reopened.close();
+});
+test('wearable ACK requires a fresh matching snapshot, never cache or another entry', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../powerprofile-wearable/src/pages/index/index.ux'), 'utf8');
+  const code = source.match(/<script>([\s\S]*?)<\/script>/)[1]
+    .replace(/^import .*$/gm, '').replace('export default', 'module.exports =');
+  const sent = [], connection = { send(message) { sent.push(message.data); } };
+  let restore;
+  const storage = { get(options) { restore = options.success; }, set() {} };
+  const versionCode = require('../package.json').buildNumber;
+  const context = { module: { exports: {} }, view: require('../shared/powerprofile-view.cjs'), entry: { versionCode }, setInterval() { return 1; }, clearInterval() {},
+    require(name) { if (name === '@system.storage') return storage; if (name === '@system.interconnect') return { instance() { return connection; } }; throw Error('unexpected_module'); } };
+  vm.runInNewContext(code, context); const page = context.module.exports; Object.assign(page, page.private); page.onInit();
+  const data = { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_snapshot', generatedAt: '2026-11-18T12:00:00.000Z', day: '2026-11-18' };
+  connection.onmessage({ data: { ...data, entryId: 'codex' } });
+  assert.equal(sent.filter(m => m.type === 'powerprofile_snapshot_applied').length, 0);
+  connection.onmessage({ data });
+  const ack = sent.filter(m => m.type === 'powerprofile_snapshot_applied'); assert.equal(ack.length, 1); assert.equal(ack[0].snapshotAt, data.generatedAt); assert.equal(ack[0].versionCode, versionCode);
+  restore(JSON.stringify({ ...data, generatedAt: '2026-11-18T11:00:00.000Z' }));
+  connection.onmessage({ data: { ...data, generatedAt: '2026-11-18T10:00:00.000Z' } });
+  assert.equal(sent.filter(m => m.type === 'powerprofile_snapshot_applied').length, 1); assert.equal(page.last.generatedAt, data.generatedAt);
+  page.onDestroy();
 });

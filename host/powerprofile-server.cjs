@@ -26,12 +26,18 @@ const server = https.createServer({ key: fs.readFileSync(path.join(runtime, 'tls
   const reply = (code, data) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
   const auth = Buffer.from(req.headers.authorization || '');
   if (auth.length !== expected.length || !crypto.timingSafeEqual(auth, expected)) return reply(401, { error: 'unauthorized' });
-  if (req.method !== 'POST' || !['/powerprofile/poll', '/powerprofile/ack'].includes(req.url)) return reply(404, { error: 'not_found' });
+  if (req.method !== 'POST' || !['/powerprofile/poll', '/powerprofile/ack', '/powerprofile/device-report'].includes(req.url)) return reply(404, { error: 'not_found' });
   try {
     let size = 0; const chunks = [];
     for await (const chunk of req) { size += chunk.length; if (size > 8192) throw new Error('body_too_large'); chunks.push(chunk); }
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     if (body.entryId !== 'powerprofile' || body.protocol !== 1) throw new Error('invalid_identity');
+    if (req.url.endsWith('/device-report')) {
+      if (!Number.isSafeInteger(body.versionCode) || body.versionCode <= 0 || typeof body.snapshotAt !== 'string' || body.snapshotAt.length > 32 || !Number.isFinite(Date.parse(body.snapshotAt))) throw new Error('invalid_device_report');
+      const report = { event: 'powerprofile_snapshot_applied', snapshotAt: body.snapshotAt, versionCode: body.versionCode, receivedAt: new Date().toISOString() };
+      fs.writeFileSync(path.join(runtime, 'powerprofile-device-latest.json'), JSON.stringify(report));
+      console.log(JSON.stringify(report)); return reply(200, { ok: true });
+    }
     if (req.url.endsWith('/ack')) {
       if (!Array.isArray(body.ids) || body.ids.length > 20) throw new Error('invalid_ack');
       completions.ack(body.ids); return reply(200, { ok: true });

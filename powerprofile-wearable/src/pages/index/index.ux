@@ -14,6 +14,7 @@
 </template>
 <script>
 import view from '../../common/powerprofile-view.cjs'
+import entry from '../../common/entry.json'
 export default {
   private: { day: '今日', status: '等待手机', usage: '未统计', energy: '未统计', game: '未统计', tokens: '未统计', five: '未知', fiveProgress: 0, fiveReset: '等待额度数据', week: '未知', weekProgress: 0, weekReset: '等待额度数据', freshness: '等待电脑统计', syncedAt: '', connection: null, last: null, timer: null, alive: true },
   onInit() {
@@ -28,6 +29,7 @@ export default {
           if (this.last && Date.parse(data.generatedAt) < Date.parse(this.last.generatedAt)) return;
           this.render(data); this.status = '手机已同步';
           require('@system.storage').set({ key: 'powerprofile.snapshot.v1', value: JSON.stringify(data) });
+          this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_snapshot_applied', snapshotAt: data.generatedAt, versionCode: entry.versionCode }, success: function () {}, fail: function () {} });
         } catch (error) { this.status = '数据待重试'; }
       };
       this.timer = setInterval(() => { if (this.last) this.render(this.last); this.refresh(); }, 60000);

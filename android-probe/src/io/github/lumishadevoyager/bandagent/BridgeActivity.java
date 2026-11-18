@@ -59,6 +59,7 @@ public final class BridgeActivity extends Activity {
         if (!entry.equals("powerprofile")) button(layout, "检查并安装更新", () -> startForegroundService(new Intent(this, BridgeService.class).setAction("check")));
         if (entry.equals("powerprofile")) {
             button(layout, "通知设置", () -> startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())));
+            button(layout, "10 秒后发送测试提醒", () -> { startForegroundService(new Intent(this, BridgeService.class).setAction("powerprofile_test_notice")); show("10 秒后发送明确标记的测试通知；如运动健康仅锁屏通知，请锁屏并佩戴手环"); });
             TextView hint = new TextView(this); hint.setText("在小米运动健康的 App 通知中启用本应用；手环震动受系统勿扰设置控制。监看每 15 秒同步，额度每分钟读取。预览未启用 OTA。"); layout.addView(hint);
         }
         button(layout, "打开 AstroBox（首次允许安装通路）", () -> { Intent launch = getPackageManager().getLaunchIntentForPackage("moe.astralsight.astrobox"); if (launch != null) startActivity(launch); });
@@ -112,7 +113,7 @@ public final class BridgeActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); acceptDevelopmentIntent(intent); acceptComputerPairing(intent); }
     private void acceptComputerPairing(Intent intent) {
         String encoded = intent.getStringExtra("signed_pairing_b64"); if (encoded == null || encoded.length() > 8192) return;
-        try { new ComputerLink(this).pair(Base64.decode(encoded, Base64.DEFAULT)); startForegroundService(new Intent(this, BridgeService.class).setAction("reload_link")); show("电脑签名配对已保存，日志与音频将自动上传"); }
+        try { new ComputerLink(this).pair(Base64.decode(encoded, Base64.DEFAULT)); startForegroundService(new Intent(this, BridgeService.class).setAction("reload_link")); show(entry.equals("powerprofile") ? "电脑签名配对已保存，开始读取统计" : "电脑签名配对已保存，日志与音频将自动上传"); }
         catch (Exception error) { show("电脑配对未通过校验：" + error.getClass().getSimpleName()); }
     }
     private void acceptDevelopmentIntent(Intent intent) {

@@ -4,6 +4,8 @@
 
 后续新增表盘要求：保留本机时间、日期、手环自身电量，其他统计可留详情应用；最新分层路线与真实交付边界见 [表盘与应用路线](./POWERPROFILE_WATCHFACE.md)。现有 RPK 为应用，不是表盘。
 
+2026-11-18 真机进展：版本码 8 的安装、真实统计/额度展示及短时息屏同步已获得设备回执与用户确认；详细证据、版本范围和未通过项见 [真机验收记录](./POWERPROFILE_DEVICE_ACCEPTANCE.md)。
+
 ## 目标与难度
 
 独立 PowerProfile RPK（`io.github.lumishadevoyager.bandagent.powerprofile`），不覆盖历史 Codex/Harness。只读监看，不录音、不续聊、不执行电脑命令。整体中等难度；电脑统计和页面较低，手机后台连接/签名身份中等，稳定的系统通知和锁屏重连需要真机验证。手机仍是必要的数据与通知桥接，但不再处理音频、转写或 Agent 控制。
