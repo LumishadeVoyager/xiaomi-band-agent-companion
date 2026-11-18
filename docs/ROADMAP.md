@@ -6,7 +6,7 @@
 
 同日新增表盘：采用“基础原生表盘 + 详情应用 + 系统通知”，表盘必须有时间、日期、手环电量；其他统计可不在表盘显示。[路线与 G0–G6 验收](./POWERPROFILE_WATCHFACE.md) 已补充，当前仅设计预览，尚无 PowerProfile 原生表盘安装包。
 
-同日真机进展：应用 versionCode 8 已有真实快照回执；用户确认数据、Token、双窗口额度及滚动排版正常。停止 AstroBox、手机短时息屏后仍收到新快照。通知、长时后台、重连和原生表盘分别继续验收，详见 [真机验收记录](./POWERPROFILE_DEVICE_ACCEPTANCE.md)。
+同日真机进展：应用 versionCode 8 已有真实快照回执；用户确认数据、Token、双窗口额度及滚动排版正常。停止 AstroBox、手机短时息屏后仍收到新快照。手机 versionCode 9 的测试通知已由用户确认送达手环并震动。真实 Codex 完成整条链路、长时后台、重连和原生表盘分别继续验收，详见 [真机验收记录](./POWERPROFILE_DEVICE_ACCEPTANCE.md)。
 
 以下为方向变更前的历史工作线。
 

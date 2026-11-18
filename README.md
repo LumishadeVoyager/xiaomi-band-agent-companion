@@ -2,7 +2,7 @@
 
 > **当前方向（2026-11-18）：PowerProfile 手环监看。** 用户暂停语音 Agent 开发。新独立入口查看电脑用时、估算用电、游戏时间、AI Token、Codex 5 小时与周额度，并经手机系统通知同步完成提醒。代码与构建不代表真机验收，具体设置/限制见 [PowerProfile 说明](./docs/POWERPROFILE.md)。以下语音内容保留为历史记录。
 
-PowerProfile 应用已完成部分真机验收：版本码 8 的真实快照、用户确认的统计/额度展示与滚动排版，以及停止 AstroBox 后的短时息屏同步。通知、长时保活、重连和原生表盘尚需独立验证，见 [真机验收记录](./docs/POWERPROFILE_DEVICE_ACCEPTANCE.md)。
+PowerProfile 应用已完成部分真机验收：版本码 8 的真实快照、用户确认的统计/额度展示与滚动排版、停止 AstroBox 后的短时息屏同步，以及手机版本码 9 的测试通知送达和手环震动。真实 Codex 任务完成整条通知链路、长时保活、重连和原生表盘仍需验证，见 [真机验收记录](./docs/POWERPROFILE_DEVICE_ACCEPTANCE.md)。
 
 小米手环上的语音 Agent 入口：手环录音，经手机桥接，在电脑上继续已有会话并查看结果。
 
