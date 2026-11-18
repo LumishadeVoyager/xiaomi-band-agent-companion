@@ -11,18 +11,29 @@ const PC_TOKEN='a'.repeat(64), PHONE_TOKEN='b'.repeat(64);
 const child = spawn(process.execPath, [path.join(deps,'node_modules/wrangler/bin/wrangler.js'),'dev','--port','18800','--ip','127.0.0.1'], { cwd:work, windowsHide:true, env:{...process.env, PC_TOKEN, PHONE_TOKEN, CHANNEL_ID:crypto.randomBytes(16).toString('hex'), WRANGLER_SEND_METRICS:'false'}, stdio:['ignore','pipe','pipe'] });
 let output=''; child.stdout.on('data',b=>output+=b); child.stderr.on('data',b=>output+=b);
 const base='http://127.0.0.1:18800';
-async function post(route,token,body){return fetch(base+route,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});}
+const gatewayBase='http://127.0.0.1:18801'; let gatewayChild;
+async function post(route,token,body){return fetch((route.startsWith('/powerprofile/')?gatewayBase:base)+route,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});}
 const identity={protocol:1,entryId:'powerprofile'};
 try {
   let ready=false;
   for(let i=0;i<80;i++){if(child.exitCode!==null)throw Error('local_worker_exited');try{if((await fetch(base+'/health')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,250));}
   if(!ready)throw Error('local_worker_not_ready');
+  const gatewayWork=outside?path.join(outside,'gateway-work'):path.join(root,'pages-relay');
+  gatewayChild=spawn(process.execPath,[path.join(deps,'node_modules/wrangler/bin/wrangler.js'),'pages','dev','public','--port','18801','--ip','127.0.0.1'],{cwd:gatewayWork,windowsHide:true,env:{...process.env,WRANGLER_SEND_METRICS:'false'},stdio:['ignore','pipe','pipe']});
+  gatewayChild.stdout.on('data',b=>output+=b);gatewayChild.stderr.on('data',b=>output+=b);
+  ready=false;
+  for(let i=0;i<80;i++){if(gatewayChild.exitCode!==null)throw Error('local_gateway_exited');try{if((await fetch(gatewayBase+'/health')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,250));}
+  if(!ready)throw Error('local_gateway_not_ready');
+  assert.equal((await fetch(gatewayBase+'/relay/publish',{method:'POST'})).status,401);
+  assert.equal((await fetch(gatewayBase+'/snapshot.json')).status,404);
   assert.equal((await post('/powerprofile/poll',PC_TOKEN,identity)).status,401);
   assert.equal((await post('/relay/publish',PHONE_TOKEN,identity)).status,401);
   assert.equal((await post('/powerprofile/poll',PHONE_TOKEN,identity)).status,503);
   const now=new Date().toISOString(), metric={value:1,observedAt:now,source:'private-path',account:'private-account'};
   const snapshot={...identity,type:'powerprofile_snapshot',day:'2026-11-18',generatedAt:now,usageSeconds:metric,energyKWh:metric,gameSeconds:metric,aiTokens:metric,quota:null};
   const event={id:'c'.repeat(64),at:now,text:'private-transcript'};
+  assert.equal((await fetch(gatewayBase+'/relay/publish',{method:'POST',headers:{Authorization:'Bearer '+PHONE_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({...identity,snapshot,events:[event]})})).status,401);
+  assert.equal((await fetch(gatewayBase+'/relay/publish',{method:'POST',headers:{Authorization:'Bearer '+PC_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({...identity,snapshot,events:[event]})})).status,200);
   assert.equal((await post('/relay/publish',PC_TOKEN,{...identity,snapshot,events:[event]})).status,200);
   assert.equal((await post('/relay/publish',PC_TOKEN,{...identity,snapshot,events:[event]})).status,200);
   let poll=await (await post('/powerprofile/poll',PHONE_TOKEN,identity)).json();
@@ -36,6 +47,6 @@ try {
   await post('/relay/publish',PC_TOKEN,{...identity,snapshot:old,events:[]});
   poll=await (await post('/powerprofile/poll',PHONE_TOKEN,identity)).json();assert.equal(poll.snapshot.generatedAt,now);
   assert.equal((await post('/relay/publish',PC_TOKEN,{...identity,snapshot,events:[{...event,id:'bad'}]})).status,400);
-  console.log('Workers runtime integration passed: roles, privacy, persistence, duplicate upload, device receipt, phone ACK and stale ordering.');
+  console.log('Workers + Pages runtime integration passed: bound gateway, roles, privacy, persistence, duplicate upload, device receipt, phone ACK and stale ordering.');
 } catch(error) { console.error(error); console.error(output.slice(-5000)); process.exitCode=1; }
-finally { if(process.platform==='win32')spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});else child.kill('SIGTERM'); }
+finally { for(const processChild of [gatewayChild,child].filter(Boolean)){if(process.platform==='win32')spawnSync('taskkill',['/PID',String(processChild.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});else processChild.kill('SIGTERM');} }

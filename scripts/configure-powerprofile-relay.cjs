@@ -9,10 +9,10 @@ if (!/^[a-f0-9]{64}$/.test(secrets.PC_TOKEN) || !/^[a-f0-9]{64}$/.test(secrets.P
 const endpoint = process.argv[2];
 if (endpoint) {
   const config = validateRelayConfig({ endpoint, pcToken: secrets.PC_TOKEN });
-  fs.writeFileSync(path.join(root, '.local/powerprofile-relay.json'), JSON.stringify(config), { mode: 0o600 });
+  if (!process.argv.includes('--phone-only')) fs.writeFileSync(path.join(root, '.local/powerprofile-relay.json'), JSON.stringify(config), { mode: 0o600 });
   const now = Math.floor(Date.now() / 1000);
   const payload = Buffer.from(JSON.stringify({ purpose: 'powerprofile_relay_pairing', repository: 'LumishadeVoyager/xiaomi-band-agent-companion', appId: 'io.github.lumishadevoyager.bandagent.powerprofile', issuedAt: now, expiresAt: now + 600, endpoint: config.endpoint, token: secrets.PHONE_TOKEN }));
   const signature = crypto.sign('sha256', payload, fs.readFileSync(path.join(root, '.local/sign/updates/root-private.pem')));
   fs.writeFileSync(path.join(root, '.local/computer-pairing-powerprofile-relay.json'), JSON.stringify({ schema: 1, algorithm: 'RS256', payload: payload.toString('base64'), signature: signature.toString('base64') }), { mode: 0o600 });
-  console.log('Private relay config and ten-minute signed phone invitation saved; no credentials printed.');
+  console.log(process.argv.includes('--phone-only') ? 'Ten-minute signed phone invitation saved; desktop endpoint retained; no credentials printed.' : 'Private relay config and ten-minute signed phone invitation saved; no credentials printed.');
 } else console.log('Private relay secrets initialized; existing keys were retained.');

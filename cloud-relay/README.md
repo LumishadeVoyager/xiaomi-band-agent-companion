@@ -15,9 +15,11 @@ npm run build
 node test/integration.mjs
 ```
 
-On Google Drive for Windows, install the pinned devDependencies outside synced storage into `%LOCALAPPDATA%/BandAgentDev/relay-tools`, then use `node scripts/relay-tools.cjs types --include-runtime false`, `check`, and `deploy --dry-run` from the repository root. The wrapper copies source to a private build directory and does not touch other runtimes. For integration tests, set `POWERPROFILE_RELAY_TOOLS` to that external tools directory.
+On Google Drive for Windows, install the pinned devDependencies outside synced storage into `%LOCALAPPDATA%/BandAgentDev/relay-tools`, then use `node scripts/relay-tools.cjs types --include-runtime false`, `check`, and `deploy --dry-run` from the repository root. The wrapper copies source to a private build directory and does not touch other runtimes. For integration tests, set `POWERPROFILE_RELAY_TOOLS` to that external tools directory and run `node scripts/relay-tools.cjs --gateway pages dev --help` first to refresh the gateway copy. Integration tests exercise both runtimes with phone requests going through the service binding.
 
 ## Deployment
+
+If the phone network cannot reach the default Worker hostname, use the optional [Pages Function gateway](../pages-relay/README.md). It preserves authentication and storage via a service binding, provides a candidate free `pages.dev` origin, and requires Pages write authorization. Mobile-data reachability must be measured for the actual project hostname. Do not substitute GitHub Pages static JSON for a private relay.
 
 1. Use Wrangler login with account/user read and Workers scripts write. No Cloudflare credentials belong in this repository.
 2. Run `node scripts/configure-powerprofile-relay.cjs` from the root. It creates private PC/phone tokens and a channel ID under `.local`, retaining existing values on rerun.

@@ -8,7 +8,7 @@
 
 同日真机进展：应用 versionCode 8 已有真实快照回执；用户确认数据、Token、双窗口额度及滚动排版正常。停止 AstroBox、手机短时息屏后仍收到新快照。手机 versionCode 9 的测试通知已由用户确认送达手环并震动。真实 Codex 完成整条链路、长时后台、重连和原生表盘分别继续验收，详见 [真机验收记录](./POWERPROFILE_DEVICE_ACCEPTANCE.md)。
 
-同日新增互联网要求：电脑→手机走互联网，手机→手环允许蓝牙。Worker + SQLite Durable Object 分权中继、电脑主动上传、手机版本码 11 的公网配对/轮询已实现；电脑公网上传成功。默认 workers.dev 地址在手机上超时，等待可达域名继续移动数据与真机回执验收；不标记远程链路通过。见 [中继部署与限制](../cloud-relay/README.md)。
+同日新增互联网要求：电脑→手机走互联网，手机→手环允许蓝牙。默认 workers.dev 超时后改用免费 Pages Function + 内部服务绑定/SQLite Durable Object。手机 v11 关闭 Wi-Fi，使用移动数据并实际拔除 USB 后仍收到手环 v8 新回执；用户确认数据显示正常，23:33:16 确认诊断通知重试送达且震动。两端均使用新 HTTPS 入口，无自购域名。真实 Codex 完成链路、长时运行及重连另验。见 [中继部署与限制](../cloud-relay/README.md) 与 [免费入口](../pages-relay/README.md)。
 
 以下为方向变更前的历史工作线。
 
