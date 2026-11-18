@@ -1,6 +1,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
+test('Pages OTA serves only allowlisted public package paths without caching the feed', async () => {
+  const { default: gateway } = await import('../pages-relay/public/_worker.js');
+  let forwarded;
+  const request = new Request('https://candidate.pages.dev/ota/releases/download/v0.1.0-preview.9/band-agent-powerprofile-0.1.0-preview.9.apk', {headers:{Range:'bytes=2-'}});
+  const response = await gateway.fetch(request, {ASSETS:{fetch:async r=>{forwarded=r;return new Response('abc',{status:206,headers:{'Content-Range':'bytes 2-4/5'}});}}});
+  assert.equal(forwarded.headers.get('Range'),'bytes=2-');assert.equal(response.status,206);assert.equal(response.headers.get('Cache-Control'),'no-store');
+  for (const path of ['/ota/config.json','/ota/releases/download/v1/band-agent-codex-1.apk','/ota/powerprofile-preview.json?token=secret']) assert.equal((await gateway.fetch(new Request('https://candidate.pages.dev'+path), {})).status,404);
+});
+
 test('Pages gateway preserves scoped authentication and streams to its binding only', async () => {
   const { default: gateway } = await import('../pages-relay/public/_worker.js');
   let forwarded;

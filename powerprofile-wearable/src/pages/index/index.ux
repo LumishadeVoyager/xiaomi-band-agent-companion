@@ -9,6 +9,7 @@
       <list-item type="five" class="quota"><div class="column"><text class="label blue">Codex · 5 小时</text><text class="value">{{five}}</text><progress class="bar" percent="{{fiveProgress}}" /><text class="muted">{{fiveReset}}</text></div></list-item>
       <list-item type="week" class="quota"><div class="column"><text class="label purple">Codex · 本周</text><text class="value">{{week}}</text><progress class="bar purplebar" percent="{{weekProgress}}" /><text class="muted">{{weekReset}}</text></div></list-item>
       <list-item type="footer" class="footer"><div class="column"><text class="muted">{{freshness}}</text><text class="muted">{{syncedAt}}</text><input class="refresh" type="button" value="刷新" onclick="refresh" /></div></list-item>
+      <list-item type="update" class="footer"><div class="column"><text class="muted">{{updateText}}</text><input class="refresh" type="button" value="检查更新" onclick="checkUpdate" /></div></list-item>
     </list>
   </div>
 </template>
@@ -16,7 +17,7 @@
 import view from '../../common/powerprofile-view.cjs'
 import entry from '../../common/entry.json'
 export default {
-  private: { day: '今日', status: '等待手机', usage: '未统计', energy: '未统计', game: '未统计', tokens: '未统计', five: '未知', fiveProgress: 0, fiveReset: '等待额度数据', week: '未知', weekProgress: 0, weekReset: '等待额度数据', freshness: '等待电脑统计', syncedAt: '', connection: null, last: null, timer: null, alive: true },
+  private: { updateText: '应用版本 ' + entry.versionCode, day: '今日', status: '等待手机', usage: '未统计', energy: '未统计', game: '未统计', tokens: '未统计', five: '未知', fiveProgress: 0, fiveReset: '等待额度数据', week: '未知', weekProgress: 0, weekReset: '等待额度数据', freshness: '等待电脑统计', syncedAt: '', connection: null, last: null, timer: null, alive: true },
   onInit() {
     this.alive = true;
     try { require('@system.storage').get({ key: 'powerprofile.snapshot.v1', success: (raw) => { try { if (!this.last && this.alive) { this.render(JSON.parse(raw)); this.status = '缓存 · 等待同步'; } } catch (error) {} } }); } catch (error) {}
@@ -25,7 +26,9 @@ export default {
       this.connection.onmessage = (event) => {
         try {
           var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-          if (!this.alive || data.protocol !== 1 || data.entryId !== 'powerprofile' || data.type !== 'powerprofile_snapshot') return;
+          if (!this.alive || data.protocol !== 1 || data.entryId !== 'powerprofile') return;
+          if (data.type === 'ota_status') { if (['checking','available','current','downloading','installing','verified','failed','unknown','installer_setup','phone_confirmation','no_release'].indexOf(data.phase) >= 0) this.updateText = 'v' + entry.versionCode + ' · ' + data.text; return; }
+          if (data.type !== 'powerprofile_snapshot') return;
           if (this.last && Date.parse(data.generatedAt) < Date.parse(this.last.generatedAt)) return;
           this.render(data); this.status = '手机已同步';
           require('@system.storage').set({ key: 'powerprofile.snapshot.v1', value: JSON.stringify(data) });
@@ -33,11 +36,13 @@ export default {
         } catch (error) { this.status = '数据待重试'; }
       };
       this.timer = setInterval(() => { if (this.last) this.render(this.last); this.refresh(); }, 60000);
+      this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_hello', versionCode: entry.versionCode }, success: function () {}, fail: function () {} });
       this.refresh();
     } catch (error) { this.status = '手机通道不可用'; }
   },
   onShow() { this.refresh(); },
   render(data) { var model = view.present(data, Date.now()); this.last = data; for (var key in model) this[key] = model[key]; this.syncedAt = '快照 ' + new Date(Date.parse(data.generatedAt) + 8 * 3600000).toISOString().slice(11, 16) + ' 北京时间'; },
+  checkUpdate() { if (this.connection) this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_update_check' }, success: function () {}, fail: () => { this.updateText = '手机未连接'; } }); },
   refresh() {
     if (!this.connection || !this.alive) return;
     this.status = '等待同步';

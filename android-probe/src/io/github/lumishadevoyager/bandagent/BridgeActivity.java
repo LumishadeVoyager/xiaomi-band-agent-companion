@@ -56,16 +56,17 @@ public final class BridgeActivity extends Activity {
         button(layout, "连接手环并授权", this::connect);
         button(layout, "打开对应手环应用", this::launchWearApp);
         button(layout, "用 AstroBox 安装对应测试包", this::installWearApp);
-        if (!entry.equals("powerprofile")) button(layout, "检查并安装更新", () -> startForegroundService(new Intent(this, BridgeService.class).setAction("check")));
+        button(layout, "检查并安装更新", () -> startForegroundService(new Intent(this, BridgeService.class).setAction("check")));
         if (entry.equals("powerprofile")) {
+            button(layout, "配置手环更新安装通路", () -> startForegroundService(new Intent(this, BridgeService.class).setAction("installer_setup")));
             button(layout, "通知设置", () -> startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())));
             button(layout, "10 秒后发送测试提醒", () -> { startForegroundService(new Intent(this, BridgeService.class).setAction("powerprofile_test_notice")); show("10 秒后发送明确标记的测试通知；如运动健康仅锁屏通知，请锁屏并佩戴手环"); });
-            TextView hint = new TextView(this); hint.setText("在小米运动健康的 App 通知中启用本应用；手环震动受系统勿扰设置控制。监看每 15 秒同步，额度每分钟读取。预览未启用 OTA。"); layout.addView(hint);
+            TextView hint = new TextView(this); hint.setText("在小米运动健康的 App 通知中启用本应用；手环震动受系统勿扰设置控制。监看每 15 秒同步，额度每分钟读取。后台每 15 分钟检查预览更新；手机安装可能需要系统确认。"); layout.addView(hint);
         }
         button(layout, "打开 AstroBox（首次允许安装通路）", () -> { Intent launch = getPackageManager().getLaunchIntentForPackage("moe.astralsight.astrobox"); if (launch != null) startActivity(launch); });
         button(layout, "允许本应用更新手机安装包", () -> startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))));
         CheckBox automatic = new CheckBox(this); automatic.setText("自动更新 · preview 测试通道"); automatic.setChecked(getSharedPreferences("ota", 0).getBoolean("autoUpdates", true));
-        automatic.setOnCheckedChangeListener((button, checked) -> getSharedPreferences("ota", 0).edit().putBoolean("autoUpdates", checked).apply()); if (!entry.equals("powerprofile")) layout.addView(automatic);
+        automatic.setOnCheckedChangeListener((button, checked) -> getSharedPreferences("ota", 0).edit().putBoolean("autoUpdates", checked).apply()); layout.addView(automatic);
         setContentView(layout);
         registerReceiver(statusReceiver, new IntentFilter(getPackageName() + ".STATUS"), Context.RECEIVER_NOT_EXPORTED);
         show((entry.equals("powerprofile") ? "PowerProfile" : entry.equals("codex") ? "Codex" : "DeepSeek Harness") + " 开发预览\n" + getSharedPreferences("ota", 0).getString("lastStatus", "等待连接与配对"));
@@ -77,7 +78,7 @@ public final class BridgeActivity extends Activity {
     private void button(LinearLayout layout, String title, Runnable action) {
         Button button = new Button(this); button.setText(title); button.setOnClickListener(v -> action.run()); layout.addView(button);
     }
-    private void show(String text) { runOnUiThread(() -> status.setText(text)); }
+    private void show(String text) { runOnUiThread(() -> status.setText(text + ("powerprofile".equals(entry) ? "\n更新：" + getSharedPreferences("ota", 0).getString("lastUpdateStatus", "等待自动检查") : ""))); }
     private void connect() {
         Wearable.getNodeApi(this).getConnectedNodes().addOnSuccessListener(nodes -> {
             if (nodes.isEmpty()) { show("小米运动健康未返回已连接设备"); return; }

@@ -16,6 +16,7 @@ public final class OtaCoordinator {
     private final PublicKey root;
     private AstroBoxApi astro;
     private long lastProgress;
+    private long lastSetupAttempt;
     public OtaCoordinator(Context context, String entry, Sink sink) throws Exception {
         this.context = context; this.entry = entry; this.sink = sink; prefs = context.getSharedPreferences("ota", 0);
         root = SignedFeed.publicKey(new String(read(context.getAssets().open("update-public.pem"), 8192), StandardCharsets.US_ASCII));
@@ -29,6 +30,14 @@ public final class OtaCoordinator {
         if (pending > 0 && actualCode >= pending) { prefs.edit().remove("wearPendingCode").remove("wearTaskId").apply(); sink.state("verified", "手环更新完成，实际版本码 " + actualCode, 100); }
     }
     private AstroBoxApi astro() throws Exception { if (astro == null) astro = new AstroBoxApi(context); return astro; }
+    public void prepareInstaller() {
+        lastSetupAttempt = android.os.SystemClock.elapsedRealtime();
+        try { device(); prefs.edit().putBoolean("installerSetupPending", false).apply(); sink.state("installer_ready", "手环更新安装通路已授权", 100); }
+        catch (Exception error) {
+            if ("astrobox_pairing_required".equals(error.getMessage())) { prefs.edit().putBoolean("installerSetupPending", true).apply(); sink.state("installer_setup", "请在 AstroBox 同意 PowerProfile 安装授权，然后重新检查更新", 0); }
+            else { String code = error.getMessage(); if (code == null || !code.matches("[a-z_0-9]{1,80}")) code = error.getClass().getSimpleName(); sink.state("installer_setup", "安装通路未就绪：" + code + "；请打开 AstroBox 后重试", 0); }
+        }
+    }
     private String device() throws Exception {
         String saved = prefs.getString("deviceId", ""); JSONArray devices = astro().devices(); String candidate = null; int connected = 0;
         for (int i = 0; i < devices.length(); i++) {
@@ -51,7 +60,8 @@ public final class OtaCoordinator {
             String channel = prefs.getString("channel", "preview");
             if (!channel.equals("preview") && !channel.equals("stable")) throw new SecurityException("invalid_channel");
             sink.state("checking", "正在检查 " + channel + " 更新", 0);
-            byte[] bytes = OtaHttp.bytes("https://raw.githubusercontent.com/" + SignedFeed.REPOSITORY + "/main/updates/" + channel + ".json", 131072);
+            String feedUrl = entry.equals("powerprofile") ? SignedFeed.OTA_ORIGIN + "/ota/powerprofile-" + channel + ".json" : "https://raw.githubusercontent.com/" + SignedFeed.REPOSITORY + "/main/updates/" + channel + ".json";
+            byte[] bytes = OtaHttp.bytes(feedUrl, 131072);
             SignedFeed feed = SignedFeed.verify(bytes, root, channel, now);
             long phoneCode = ApkUpdateInstaller.current(context);
             String model = prefs.getString("model", "M2551B1"), region = prefs.getString("region", "CN");
@@ -60,6 +70,7 @@ public final class OtaCoordinator {
             if (phone == null && wearable == null) { sink.state("current", "手机与手环均已是最新版本", 100); return; }
             if (!apply) { sink.state("available", "发现更新，点击更新以安装", 0); return; }
             if (phone != null) {
+                if (prefs.getLong("apkPendingCode", 0) > phoneCode && context.getPackageManager().getPackageInstaller().getSessionInfo(prefs.getInt("apkSession", -1)) == null) prefs.edit().remove("apkPendingCode").remove("apkSession").commit();
                 if (prefs.getLong("apkPendingCode", 0) > phoneCode) { sink.state("phone_confirmation", "手机更新待系统确认，请查看手机通知", 0); return; }
                 File apk = download(phone);
                 if (sink.busy()) { sink.state("deferred", "录音处理中，安装已延期", 0); return; }
@@ -84,12 +95,13 @@ public final class OtaCoordinator {
             android.util.Log.e("BandAgentBridge", "update failed", error);
             String reason = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
             if (reason.equals("http_404")) sink.state("no_release", "当前通道尚未发布可安装更新", 0);
+            else if (reason.equals("allow_unknown_app_installation_required")) sink.state("phone_permission", "请在手机伴侣允许本应用安装更新，然后重新检查更新", 0);
             else if (reason.equals("astrobox_pairing_required")) { prefs.edit().putBoolean("installerSetupPending", true).apply(); sink.state("installer_setup", "首次更新请在 AstroBox 允许 Band Agent 安装通路", 0); }
             else sink.state("error", reason, 0);
         }
     }
     public void poll() {
-        String taskId = prefs.getString("wearTaskId", ""); if (taskId.isEmpty()) { if (prefs.getBoolean("installerSetupPending", false)) check(true, false); return; }
+        String taskId = prefs.getString("wearTaskId", ""); if (taskId.isEmpty()) { if (prefs.getBoolean("installerSetupPending", false) && android.os.SystemClock.elapsedRealtime() - lastSetupAttempt > 60000) prepareInstaller(); return; }
         try {
             String target = prefs.getString("deviceId", ""); long expected = prefs.getLong("wearPendingCode", 0);
             long actual = astro().installedVersion(target, context.getPackageName());

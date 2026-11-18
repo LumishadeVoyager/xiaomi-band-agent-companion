@@ -1,5 +1,7 @@
 # PowerProfile 手环监看
 
+2026-11-19 更新：电脑端已集成到 PowerProfile v1.10.0，随托盘启动并自动上传；现有手机/手环已确认刷新恢复。手机/手环公网 OTA 的引导、发布和独立验收见 [OTA 说明](./POWERPROFILE_OTA.md)。下文原独立 Node 启动命令保留作开发备用，不再是本机日常启动要求。
+
 2026-11-18 用户新需求优先于历史语音规格。关联 [Issue #23](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/23)。
 
 后续新增表盘要求：保留本机时间、日期、手环自身电量，其他统计可留详情应用；最新分层路线与真实交付边界见 [表盘与应用路线](./POWERPROFILE_WATCHFACE.md)。现有 RPK 为应用，不是表盘。
