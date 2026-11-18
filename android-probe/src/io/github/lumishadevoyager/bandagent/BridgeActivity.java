@@ -113,7 +113,7 @@ public final class BridgeActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); acceptDevelopmentIntent(intent); acceptComputerPairing(intent); }
     private void acceptComputerPairing(Intent intent) {
         String encoded = intent.getStringExtra("signed_pairing_b64"); if (encoded == null || encoded.length() > 8192) return;
-        try { new ComputerLink(this).pair(Base64.decode(encoded, Base64.DEFAULT)); startForegroundService(new Intent(this, BridgeService.class).setAction("reload_link")); show(entry.equals("powerprofile") ? "电脑签名配对已保存，开始读取统计" : "电脑签名配对已保存，日志与音频将自动上传"); }
+        try { ComputerLink link = new ComputerLink(this); link.pair(Base64.decode(encoded, Base64.DEFAULT)); startForegroundService(new Intent(this, BridgeService.class).setAction("reload_link")); show(entry.equals("powerprofile") ? (link.internet() ? "互联网配对已保存，可使用移动数据同步" : "电脑签名配对已保存，开始读取统计") : "电脑签名配对已保存，日志与音频将自动上传"); }
         catch (Exception error) { show("电脑配对未通过校验：" + error.getClass().getSimpleName()); }
     }
     private void acceptDevelopmentIntent(Intent intent) {

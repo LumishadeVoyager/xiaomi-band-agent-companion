@@ -157,7 +157,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private void pollComputer() {
         try {
             if (computer == null || !computer.paired() || recording) return;
-            if (powerprofile != null) { powerprofile.poll(computer, nodeId); state("computer_synced", "电脑统计已读取；手环显示以设备回执为准", 0); return; }
+            if (powerprofile != null) { powerprofile.poll(computer, nodeId); state("computer_synced", powerprofile.statusText(), 0); return; }
             org.json.JSONArray commands = computer.post("/poll", new JSONObject().put("entryId", entry)).getJSONArray("commands");
             for (int i = 0; i < commands.length(); i++) {
                 JSONObject command = commands.getJSONObject(i); String type = command.getString("type");
@@ -166,7 +166,14 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
                     send(nodeId, new JSONObject().put("protocol", 1).put("type", "draft_ready").put("entryId", entry).put("id", command.getString("id")).put("audioId", command.getString("audioId")).put("text", command.getString("text")).put("status", "unsubmitted"));
                 }
             }
-        } catch (Exception ignored) { if (powerprofile != null) state("offline", "电脑未连接，保留上次快照并自动重试", 0); /* Durable commands are not retired. */ }
+        } catch (Exception error) {
+            if (powerprofile != null) {
+                String code = error.getClass().getSimpleName();
+                if (error.getMessage() != null && error.getMessage().matches("computer_http_[0-9]{3}")) code = error.getMessage();
+                state("offline", (computer != null && computer.internet() ? "互联网中继暂不可达 · " : "电脑未连接 · ") + code + "；保留快照并重试", 0);
+            }
+            /* Durable commands are not retired. Error text never contains credentials. */
+        }
     }
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onDestroy() { if (registered && nodeId != null) Wearable.getMessageApi(this).removeListener(nodeId); work.shutdownNow(); maintenance.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }

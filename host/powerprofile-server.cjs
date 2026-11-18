@@ -7,8 +7,10 @@ const crypto = require('node:crypto');
 const { snapshot } = require('./powerprofile-snapshot.cjs');
 const { readRateLimits } = require('./codex-rate-limits.cjs');
 const { Completions } = require('./codex-completions.cjs');
+const { loadRelay, publishRelay } = require('./powerprofile-relay.cjs');
 const runtime = process.env.POWERPROFILE_BAND_RUNTIME || path.join(process.env.LOCALAPPDATA || os.homedir(), 'BandAgentDev/runtime');
 const root = process.env.POWERPROFILE_ROOT || 'E:/PowerProfile';
+const relay = loadRelay(process.env.POWERPROFILE_RELAY_CONFIG || path.join(__dirname, '../.local/powerprofile-relay.json'));
 // Use the existing pinned pairing identity. No new trust root or credentials.
 const expected = Buffer.from('Bearer ' + fs.readFileSync(path.join(runtime, 'token'), 'utf8').trim());
 const completions = new Completions(path.join(runtime, 'powerprofile-completions.sqlite'));
@@ -22,6 +24,18 @@ async function refreshQuota() {
 function scan() { completions.scan(process.env.CODEX_SESSIONS_ROOT || path.join(os.homedir(), '.codex/sessions')); }
 scan(); refreshQuota();
 const quotaTimer = setInterval(refreshQuota, 60000), scanTimer = setInterval(scan, 5000);
+let relayBusy = false;
+async function syncRelay() {
+  if (!relay || relayBusy) return; relayBusy = true;
+  try {
+    const result = await publishRelay(relay, snapshot(root, quota), completions.pending());
+    completions.ack(result.ackedIds);
+    if (result.report) fs.writeFileSync(path.join(runtime, 'powerprofile-relay-device-latest.json'), JSON.stringify(result.report));
+    fs.writeFileSync(path.join(runtime, 'powerprofile-relay-status.json'), JSON.stringify({ online: true, uploadedAt: new Date().toISOString() }));
+  } catch { fs.writeFileSync(path.join(runtime, 'powerprofile-relay-status.json'), JSON.stringify({ online: false, attemptedAt: new Date().toISOString() })); }
+  finally { relayBusy = false; }
+}
+syncRelay(); const relayTimer = setInterval(syncRelay, 10000);
 const server = https.createServer({ key: fs.readFileSync(path.join(runtime, 'tls-key.pem')), cert: fs.readFileSync(path.join(runtime, 'tls-cert.pem')), minVersion: 'TLSv1.2' }, async (req, res) => {
   const reply = (code, data) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
   const auth = Buffer.from(req.headers.authorization || '');
@@ -47,4 +61,4 @@ const server = https.createServer({ key: fs.readFileSync(path.join(runtime, 'tls
 });
 server.requestTimeout = 20000;
 server.listen(Number(process.env.POWERPROFILE_BAND_PORT || 8791), '0.0.0.0', () => console.log('PowerProfile band monitor HTTPS ready; device acceptance pending.'));
-for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { clearInterval(quotaTimer); clearInterval(scanTimer); server.close(() => { completions.close(); process.exit(0); }); });
+for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { clearInterval(quotaTimer); clearInterval(scanTimer); clearInterval(relayTimer); server.close(() => { completions.close(); process.exit(0); }); });

@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "powerprofile-band-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "secrets": { "required": ["PC_TOKEN", "PHONE_TOKEN", "CHANNEL_ID"] },
+  "durable_objects": { "bindings": [{ "name": "PAIRS", "class_name": "PairRelay" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PairRelay"] }],
+  "observability": { "enabled": false }
+}

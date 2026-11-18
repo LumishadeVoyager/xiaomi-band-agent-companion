@@ -13,6 +13,8 @@ public final class PowerProfileBridge {
     private final Service service;
     private final NotificationManager notifications;
     private final SharedPreferences prefs;
+    private String statusText = "等待电脑统计";
+    public String statusText() { return statusText; }
     public PowerProfileBridge(Service service) {
         this.service = service;
         prefs = service.getSharedPreferences("powerprofile", 0);
@@ -32,6 +34,8 @@ public final class PowerProfileBridge {
         if (!computer.paired()) return;
         JSONObject identity = new JSONObject().put("protocol", 1).put("entryId", "powerprofile");
         JSONObject result = computer.post("/powerprofile/poll", identity);
+        JSONObject relay = result.optJSONObject("relay");
+        statusText = computer.internet() ? (relay != null && relay.optBoolean("sourceOnline") ? "互联网中继已同步；手环显示以设备回执为准" : "互联网中继：电脑离线，保留上次统计") : "电脑统计已读取；手环显示以设备回执为准";
         JSONObject snapshot = result.getJSONObject("snapshot");
         prefs.edit().putString("snapshot", snapshot.toString()).apply();
         if (nodeId != null) Wearable.getMessageApi(service).sendMessage(nodeId, snapshot.toString().getBytes(StandardCharsets.UTF_8));

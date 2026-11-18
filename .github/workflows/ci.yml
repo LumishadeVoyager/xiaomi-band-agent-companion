@@ -7,6 +7,25 @@ on:
 permissions:
   contents: read
 jobs:
+  internet-relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cloud-relay/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: cloud-relay
+      - run: npm run check
+        working-directory: cloud-relay
+      - run: npm run build
+        working-directory: cloud-relay
+      - run: node test/integration.mjs
+        working-directory: cloud-relay
+        env:
+          WRANGLER_SEND_METRICS: 'false'
   documentation:
     runs-on: ubuntu-latest
     steps:
