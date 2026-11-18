@@ -65,10 +65,10 @@ public final class MijiaPower {
                         if(prefs.contains("restoreValue"))restore(link);
                         Cipher local=Cipher.getInstance("AES/GCM/NoPadding");local.init(Cipher.ENCRYPT_MODE,localKey());JSONObject saved=new JSONObject().put("nonce",Base64.getEncoder().encodeToString(local.getIV())).put("ciphertext",Base64.getEncoder().encodeToString(local.doFinal(envelope)));
                         if(!prefs.edit().putString("sealed",saved.toString()).putLong("revision",incoming.getLong("revision")).commit())throw new java.io.IOException("pairing_not_saved");
-                        config=incoming;actual=null;nextRead=0;phase="ready";
+                        config=incoming;actual=null;nextRead=0;phase="ready";prefs.edit().putString("configError","").apply();
                     }
                 }
-            }catch(Exception ignored){if(config==null)phase="auth_required";}
+            }catch(Exception error){String code=error.getMessage();prefs.edit().putString("configError",code!=null&&code.matches("[a-zA-Z0-9_]{1,80}")?code:error.getClass().getSimpleName()).apply();if(config==null)phase="auth_required";}
         }
         if(config==null)return;
         try {

@@ -20,6 +20,7 @@ public final class PhoneStatus {
         return new JSONObject().put("protocol",1).put("entryId","powerprofile").put("phoneVersion",ApkUpdateInstaller.current(context))
             .put("session",session).put("startedAt",startedAt).put("uptimeSeconds",uptime)
             .put("wearConnected",connected).put("batteryUnrestricted",unrestricted(context)).put("notificationsAllowed",notifications(context))
-            .put("lastSyncAt",state.getLong("lastSyncAt",0)).put("lastWearAt",state.getLong("lastWearAt",0));
+            .put("lastSyncAt",state.getLong("lastSyncAt",0)).put("lastWearAt",state.getLong("lastWearAt",0))
+            .put("mijiaConfigError",context.getSharedPreferences("mijia_power",0).getString("configError",""));
     }
 }
