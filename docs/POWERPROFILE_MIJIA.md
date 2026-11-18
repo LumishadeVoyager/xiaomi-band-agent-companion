@@ -2,7 +2,7 @@
 
 用户批准电脑卡片右侧无文字电源图标；电脑已设置来电自启、断电休眠。控制路线为手环 → 手机伴侣 → 小米 HTTPS 云端 → 指定插座，电脑 PowerProfile 只负责统计，无需保持电脑在线。插座恢复供电不等于操作系统已经启动。手环到手机仍使用蓝牙。
 
-沿用电脑现有米家授权会话，引导工具只读取空气净化器并取出必要 service session，不传密码、passToken 或 refresh token。配置用固定更新信任根签名，再使用手机配对密钥派生的 AES-GCM 加密，私有中继只保存密文。手机验签后用 Android Keystore 加密保存，备份关闭；设备标识和凭据不写入 APK/RPK、GitHub 或公开 OTA 清单。
+沿用电脑现有米家授权会话，引导工具只读取空气净化器并取出必要 service session，不传密码、passToken 或 refresh token。配置用固定更新信任根签名，再使用手机配对密钥派生的 AES-GCM 加密，私有中继只保存密文。此派生密钥来自中继也持有的手机令牌，所以不将该设计称为对中继运营方保密的端到端加密。手机验签后用 Android Keystore 加密保存，备份关闭；设备标识和凭据不写入 APK/RPK、GitHub 或公开 OTA 清单。
 
 本实现兼容 PowerProfile 当前安装的 mijiaAPI 5.0.0 云协议，不是新申请的官方 OAuth 应用。协议来源：[mijiaAPI](https://github.com/Do1e/mijia-api)、[micloud MIT encryption implementation](https://github.com/Squachen/micloud/blob/master/micloud/miutils.py)。手机请求固定 `https://api.io.mi.com/app/miotspec/prop/get` 和 `prop/set`，保持平台 TLS 校验，不向替代 API 域名传凭据。会话可能提前过期，30 天只是本地配置有效期上限；过期需要从电脑现有授权重新配对，不承诺永久有效。
 

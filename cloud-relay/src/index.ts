@@ -53,7 +53,8 @@ export class PairRelay extends DurableObject<Env> {
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state(key,value,at) VALUES ('report',?,?)", JSON.stringify(report), Date.now()); return { ok: true };
   }
   async alarm(): Promise<void> { this.prune(Date.now()); if (this.ctx.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM state').one().count || this.ctx.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM events').one().count) await this.ctx.storage.setAlarm(Date.now() + DAY); }
-  // Opaque, end-to-end encrypted phone pairing; never Xiaomi plaintext.
+  // Encrypted phone pairing; no Xiaomi plaintext in storage. The shared phone
+  // token is also a relay secret, so this does not hide data from its operator.
   async mijiaConfig(value?: { nonce: string; ciphertext: string }): Promise<unknown> {
     if (value) await this.ctx.storage.put('mijia-config', value);
     return (await this.ctx.storage.get('mijia-config')) ?? null;
