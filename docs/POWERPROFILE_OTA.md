@@ -32,3 +32,7 @@ Pages 仅公开已审计安装包及签名 feed。数据接口仍要求独立角
 6. 分别取得 Android N→N+1、手环 N→N+1、升级后统计/通知和持久配对验收记录。关闭自动更新、拒绝确认、损坏包和断流等失败情形另测。
 
 官方限制：[Android 安装用户操作](https://developer.android.com/reference/android/content/pm/PackageInstaller.SessionParams#setRequireUserAction(int))、[Pages Function 静态资产](https://developers.cloudflare.com/pages/functions/advanced-mode/)。
+
+## v14 UI 与手机直连米家云端（准备发布）
+
+用户已批准精简 UI 的远程 OTA，重建同身份 RPK/APK。新增电源图标、相对重置倒计时，以及手机直接访问米家云端的独立控制任务。控制不依赖电脑在线。米家会话仅经根签名与端到端加密私有配置传入手机，不进入安装包或公开 feed。仅空气净化器可参与一次性自动验收并恢复；电脑插座不进行实际切换。发布与真机升级证据待下方追加。

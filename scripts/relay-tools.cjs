@@ -3,6 +3,7 @@ const fs = require('node:fs'), path = require('node:path'), cp = require('node:c
 const root = path.resolve(__dirname, '..');
 const tools = process.env.POWERPROFILE_RELAY_TOOLS || path.join(process.env.LOCALAPPDATA || root, 'BandAgentDev/relay-tools');
 const argv = process.argv.slice(2), gateway = argv[0] === '--gateway';
+if (gateway && argv.includes('deploy') && fs.existsSync(path.join(root, '.local/powerprofile-ui-review.pending.json'))) throw new Error('PowerProfile UI review pending; Pages OTA deployment is paused');
 if (gateway) argv.shift();
 const source = path.join(root, gateway ? 'pages-relay' : 'cloud-relay');
 const work = path.join(tools, gateway ? 'gateway-work' : 'work'); fs.mkdirSync(work, { recursive: true });

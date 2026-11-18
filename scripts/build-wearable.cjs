@@ -19,7 +19,9 @@ for (const entry of powerprofile ? [{ id: 'powerprofile', name: 'PowerProfile', 
   entry.version = require('../package.json').version;
   entry.versionCode = require('../package.json').buildNumber;
   fs.writeFileSync(path.join(common, 'entry.json'), JSON.stringify(entry));
-  fs.writeFileSync(path.join(common, 'logo.png'), icon(entry.color));
+  if (powerprofile) {
+    if (!fs.existsSync(path.join(common, 'logo.png'))) throw new Error('PowerProfile review icon assets missing');
+  } else fs.writeFileSync(path.join(common, 'logo.png'), icon(entry.color));
   fs.writeFileSync(path.join(work, 'package.json'), JSON.stringify({ name: 'band-agent-' + entry.id, version: '0.1.0', dependencies: {} }));
   fs.writeFileSync(path.join(work, 'src/manifest.json'), JSON.stringify({ package: 'io.github.lumishadevoyager.bandagent.' + entry.id, name: entry.name, versionName: entry.version, versionCode: entry.versionCode, minPlatformVersion: 1200, icon: '/common/logo.png', deviceTypeList: ['watch'], features: [{ name: 'system.record' }, { name: 'system.interconnect' }, { name: 'system.app' }, { name: 'system.router' }, { name: 'system.storage' }], config: { designWidth: 336, logLevel: 'debug' }, router: { entry: 'pages/index', pages: { 'pages/index': { component: 'index' }, 'pages/update': { component: 'update' }, 'pages/diagnostics': { component: 'diagnostics' } } } }, null, 2));
   // Build outside synced storage; share the private development signing identity.

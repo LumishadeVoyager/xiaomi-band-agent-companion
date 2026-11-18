@@ -53,19 +53,43 @@ export class PairRelay extends DurableObject<Env> {
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state(key,value,at) VALUES ('report',?,?)", JSON.stringify(report), Date.now()); return { ok: true };
   }
   async alarm(): Promise<void> { this.prune(Date.now()); if (this.ctx.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM state').one().count || this.ctx.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM events').one().count) await this.ctx.storage.setAlarm(Date.now() + DAY); }
+  // Opaque, end-to-end encrypted phone pairing; never Xiaomi plaintext.
+  async mijiaConfig(value?: { nonce: string; ciphertext: string }): Promise<unknown> {
+    if (value) await this.ctx.storage.put('mijia-config', value);
+    return (await this.ctx.storage.get('mijia-config')) ?? null;
+  }
+  async mijiaReport(value?: Record<string, unknown>): Promise<unknown> {
+    if (value) {
+      const previous = await this.ctx.storage.get<Record<string, unknown>>('mijia-report');
+      const report = { ...value, receivedAt: new Date().toISOString() };
+      await this.ctx.storage.put('mijia-report', { ...report, lastTest: ['restored', 'failed', 'restore_pending'].includes(String(value.phase)) && value.testId ? report : previous?.lastTest ?? null });
+    }
+    return (await this.ctx.storage.get('mijia-report')) ?? null;
+  }
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const route = new URL(request.url).pathname;
     if (route === '/health' && request.method === 'GET') return response({ service: 'powerprofile-relay', protocol: 1 });
-    if (request.method !== 'POST' || !['/relay/publish', '/powerprofile/poll', '/powerprofile/ack', '/powerprofile/device-report'].includes(route)) return response({ error: 'not_found' }, 404);
+    if (request.method !== 'POST' || !['/relay/publish', '/powerprofile/poll', '/powerprofile/ack', '/powerprofile/device-report', '/relay/mijia-config', '/relay/mijia-report', '/powerprofile/mijia-config', '/powerprofile/mijia-report'].includes(route)) return response({ error: 'not_found' }, 404);
     if (!/^[a-f0-9]{64}$/.test(env.PC_TOKEN || '') || !/^[a-f0-9]{64}$/.test(env.PHONE_TOKEN || '') || !/^[a-f0-9]{32}$/.test(env.CHANNEL_ID || '')) return response({ error: 'relay_not_configured' }, 503);
     const supplied = request.headers.get('Authorization') || '';
-    if (!(await matches(supplied, 'Bearer ' + (route === '/relay/publish' ? env.PC_TOKEN : env.PHONE_TOKEN)))) return response({ error: 'unauthorized' }, 401);
+    if (!(await matches(supplied, 'Bearer ' + (route.startsWith('/relay/') ? env.PC_TOKEN : env.PHONE_TOKEN)))) return response({ error: 'unauthorized' }, 401);
     try {
-      const body = identity(await readBody(request, route === '/relay/publish' ? 32768 : 8192));
+      const body = identity(await readBody(request, ['/relay/publish', '/relay/mijia-config'].includes(route) ? 32768 : 8192));
       const relay = env.PAIRS.getByName(env.CHANNEL_ID);
+      if (route === '/relay/mijia-config') {
+        const value = body.config as Record<string, unknown> | undefined;
+        if (!value || typeof value.nonce !== 'string' || !/^[A-Za-z0-9+/]{16}$/.test(value.nonce) || typeof value.ciphertext !== 'string' || value.ciphertext.length > 16000 || value.ciphertext.length < 100 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value.ciphertext)) throw new Error('invalid_config');
+        await relay.mijiaConfig({ nonce: value.nonce, ciphertext: value.ciphertext }); return response({ ok: true });
+      }
+      if (route === '/powerprofile/mijia-config') return response({ config: await relay.mijiaConfig() });
+      if (route === '/relay/mijia-report') return response({ report: await relay.mijiaReport() });
+      if (route === '/powerprofile/mijia-report') {
+        if (!['computer', 'purifier'].includes(String(body.target)) || !['ready', 'confirmed', 'failed', 'restored', 'restore_pending', 'auth_required'].includes(String(body.phase)) || typeof body.revision !== 'number' || !Number.isSafeInteger(body.revision) || (body.value !== null && typeof body.value !== 'boolean') || typeof body.testId !== 'string' || body.testId.length > 64 || !/^[a-zA-Z0-9_-]*$/.test(body.testId)) throw new Error('invalid_report');
+        await relay.mijiaReport({ target: body.target, phase: body.phase, revision: body.revision, value: body.value, testId: body.testId, phoneVersion: Number.isSafeInteger(body.phoneVersion) ? body.phoneVersion : 0 }); return response({ ok: true });
+      }
       if (route === '/relay/publish') return response(await relay.publish(normalizeSnapshot(body.snapshot), eventList(body.events)));
       if (route === '/powerprofile/ack') return response(await relay.ack(ids(body.ids)));
       if (route === '/powerprofile/device-report') return response(await relay.report(deviceReport(body)));

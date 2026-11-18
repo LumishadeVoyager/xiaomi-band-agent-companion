@@ -32,11 +32,16 @@ public final class ComputerLink {
     }
     public boolean paired() { return config != null; }
     public boolean internet() { return config != null && "internet".equals(config.optString("transport")); }
+    byte[] mijiaPairingKey() throws Exception {
+        if (!internet()) throw new SecurityException("internet_pairing_required");
+        return MessageDigest.getInstance("SHA-256").digest(("powerprofile-mijia-v1\u0000" + config.getString("token")).getBytes(StandardCharsets.UTF_8));
+    }
     public JSONObject post(String route, JSONObject data) throws Exception { return request(route, data.toString().getBytes(StandardCharsets.UTF_8)); }
     public JSONObject request(String route, byte[] body) throws Exception {
         if (config == null) throw new IOException("computer_not_paired");
-        if (!(route.equals("/powerprofile/device-report") || route.equals("/powerprofile/poll") || route.equals("/powerprofile/ack") || route.equals("/diagnostics") || route.equals("/audio") || route.equals("/poll") || route.equals("/ack") || route.matches("/recording\\?entryId=(codex|harness)&audioId=audio_[a-z0-9]+"))) throw new SecurityException("invalid_computer_route");
-        if (internet() && !(route.equals("/powerprofile/poll") || route.equals("/powerprofile/ack") || route.equals("/powerprofile/device-report"))) throw new SecurityException("invalid_relay_route");
+        boolean mijia = route.equals("/powerprofile/mijia-config") || route.equals("/powerprofile/mijia-report");
+        if (!(mijia || route.equals("/powerprofile/device-report") || route.equals("/powerprofile/poll") || route.equals("/powerprofile/ack") || route.equals("/diagnostics") || route.equals("/audio") || route.equals("/poll") || route.equals("/ack") || route.matches("/recording\\?entryId=(codex|harness)&audioId=audio_[a-z0-9]+"))) throw new SecurityException("invalid_computer_route");
+        if (internet() && !(mijia || route.equals("/powerprofile/poll") || route.equals("/powerprofile/ack") || route.equals("/powerprofile/device-report"))) throw new SecurityException("invalid_relay_route");
         URL url = new URL(config.getString("endpoint") + route); final String pin = config.getString("certSha256");
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         if (!internet()) {

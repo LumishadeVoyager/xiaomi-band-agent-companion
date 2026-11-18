@@ -1,6 +1,7 @@
 // Stage only an authenticated feed and its exact audited release artifacts.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..'), version = require('../package.json').version;
+if (fs.existsSync(path.join(root, '.local/powerprofile-ui-review.pending.json'))) throw Error('PowerProfile UI is awaiting user review; OTA promotion is paused');
 const source = path.join(root, '.local/release', version);
 const feedFile = path.join(source, 'powerprofile-preview.json');
 const envelope = JSON.parse(fs.readFileSync(feedFile));

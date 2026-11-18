@@ -47,6 +47,18 @@ try {
   await post('/relay/publish',PC_TOKEN,{...identity,snapshot:old,events:[]});
   poll=await (await post('/powerprofile/poll',PHONE_TOKEN,identity)).json();assert.equal(poll.snapshot.generatedAt,now);
   assert.equal((await post('/relay/publish',PC_TOKEN,{...identity,snapshot,events:[{...event,id:'bad'}]})).status,400);
+  const seal={nonce:'a'.repeat(16),ciphertext:'b'.repeat(200)};
+  assert.equal((await post('/relay/mijia-config',PHONE_TOKEN,{...identity,config:seal})).status,401);
+  assert.equal((await post('/powerprofile/mijia-config',PC_TOKEN,identity)).status,401);
+  assert.equal((await post('/relay/mijia-config',PC_TOKEN,{...identity,config:{...seal,password:'DROP'}})).status,200);
+  assert.deepEqual((await (await post('/powerprofile/mijia-config',PHONE_TOKEN,identity)).json()).config,seal);
+  const report={...identity,target:'purifier',phase:'restored',revision:1,value:true,testId:'fixture',phoneVersion:14,account:'DROP'};
+  assert.equal((await post('/powerprofile/mijia-report',PHONE_TOKEN,report)).status,200);
+  await post('/powerprofile/mijia-report',PHONE_TOKEN,{...report,phase:'ready'});
+  const receipt=await (await post('/relay/mijia-report',PC_TOKEN,identity)).json();
+  assert.equal(receipt.report.lastTest.phase,'restored');assert.equal(JSON.stringify(receipt).includes('DROP'),false);
+  assert.equal((await post('/powerprofile/mijia-report',PHONE_TOKEN,{...report,target:'arbitrary-device'})).status,400);
+  console.log('Mijia sealed pairing and phone receipt: role separation, opaque storage and test receipt retention passed.');
   console.log('Workers + Pages runtime integration passed: bound gateway, roles, privacy, persistence, duplicate upload, device receipt, phone ACK and stale ordering.');
 } catch(error) { console.error(error); console.error(output.slice(-5000)); process.exitCode=1; }
 finally { for(const processChild of [gatewayChild,child].filter(Boolean)){if(process.platform==='win32')spawnSync('taskkill',['/PID',String(processChild.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});else processChild.kill('SIGTERM');} }

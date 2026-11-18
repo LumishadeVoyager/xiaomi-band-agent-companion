@@ -8,6 +8,28 @@ const { normalize } = require('../host/codex-rate-limits.cjs');
 const { present } = require('../shared/powerprofile-view.cjs');
 const { Completions } = require('../host/codex-completions.cjs');
 const vm = require('node:vm');
+test('real power page emits fixed desired commands, suppresses double taps and never guesses unknown state', () => {
+  const ux=fs.readFileSync(path.join(__dirname,'../powerprofile-wearable/src/pages/index/index.ux'),'utf8');
+  const source=ux.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'').replace('export default','module.exports =');
+  const sandbox={module:{exports:{}},entry:{versionCode:14},Date,Math,view:{},setInterval,clearInterval};vm.runInNewContext(source,sandbox);
+  const page=sandbox.module.exports, sent=[];
+  const state={...page.private,...page,connection:{send:r=>sent.push(r.data)}};
+  state.power={value:true,available:true,target:'purifier'};state.powerAt=Date.now();state.togglePower();state.togglePower();
+  assert.equal(sent.filter(x=>x.type==='powerprofile_power_request').length,1);
+  assert.equal(sent[0].desired,false);assert.equal(sent[0].target,'purifier');assert.match(sent[0].id,/^[a-f0-9]{32}$/);
+  assert.equal(state.power.value,true); // Wait for real cloud readback.
+  sent.length=0;state.power={value:null,available:false,target:'computer'};state.togglePower();
+  assert.equal(sent.some(x=>x.type==='powerprofile_power_request'),false);
+});
+test('compact layout keeps units, unknown values and stale quota distinct', () => {
+  const { compact } = require('../shared/powerprofile-view.cjs');
+  const now=Date.parse('2026-11-19T00:24:00Z');
+  const metric=value=>({value,observedAt:new Date(now).toISOString()});
+  const data={generatedAt:new Date(now).toISOString(),usageSeconds:metric(16320),gameSeconds:metric(4080),energyKWh:metric(.42),aiTokens:metric(842000),quota:{observedAt:new Date(now).toISOString(),fiveHour:{remainingPercent:0,resetsAt:now/1000+3600},weekly:{remainingPercent:46,resetsAt:now/1000+86400}}};
+  let v=compact(data,now);assert.equal(v.usageValue,'04:32');assert.equal(v.energyValue,'0.42');assert.equal(v.gameValue,'01:08');assert.equal(v.tokenValue,'842.0K');assert.equal(v.fiveNumber,'0%');assert.equal(v.fiveLabel,'5 小时');assert.equal(v.fiveReset,'1小时0分后重置');
+  v=compact(data,now+3600001);assert.match(v.fiveLabel,/上次/);assert.equal(v.fiveNumber,'0%');
+  v=compact({generatedAt:'invalid'},now);assert.equal(v.usageValue,'—');assert.equal(v.fiveNumber,'—');assert.equal(v.fiveReset,'暂无数据');
+});
 test('Beijing date, overlapping ledgers, merged tokens and missing values', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'powerprofile-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const put = (file, data) => fs.writeFileSync(path.join(root, file), '\uFEFF' + JSON.stringify(data));

@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
+if (process.argv.includes('--powerprofile') && fs.existsSync(path.join(root, '.local/powerprofile-ui-review.pending.json'))) throw new Error('PowerProfile UI is awaiting user review; OTA feed generation is paused');
 const pkg = require('../package.json');
 const version = pkg.version, versionCode = pkg.buildNumber;
 if (!/^\d+\.\d+\.\d+-preview\.\d+$/.test(version) || !Number.isSafeInteger(versionCode)) throw new Error('Preview version and numeric buildNumber required');

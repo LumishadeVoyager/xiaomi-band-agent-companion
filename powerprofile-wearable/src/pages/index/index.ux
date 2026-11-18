@@ -1,15 +1,12 @@
 <template>
   <div class="page">
     <list class="list">
-      <list-item type="header" class="heading"><div class="column"><text class="title">PowerProfile</text><text class="muted">{{day}} · {{status}}</text></div></list-item>
-      <list-item type="usage" class="card"><div class="column"><text class="label blue">今日电脑用时</text><text class="value">{{usage}}</text></div></list-item>
-      <list-item type="energy" class="card"><div class="column"><text class="label green">今日估算用电</text><text class="value">{{energy}}</text></div></list-item>
-      <list-item type="game" class="card"><div class="column"><text class="label orange">今日游戏</text><text class="value">{{game}}</text></div></list-item>
-      <list-item type="ai" class="card"><div class="column"><text class="label purple">今日 AI Token</text><text class="value">{{tokens}}</text></div></list-item>
-      <list-item type="five" class="quota"><div class="column"><text class="label blue">Codex · 5 小时</text><text class="value">{{five}}</text><progress class="bar" percent="{{fiveProgress}}" /><text class="muted">{{fiveReset}}</text></div></list-item>
-      <list-item type="week" class="quota"><div class="column"><text class="label purple">Codex · 本周</text><text class="value">{{week}}</text><progress class="bar purplebar" percent="{{weekProgress}}" /><text class="muted">{{weekReset}}</text></div></list-item>
-      <list-item type="footer" class="footer"><div class="column"><text class="muted">{{freshness}}</text><text class="muted">{{syncedAt}}</text><input class="refresh" type="button" value="刷新" onclick="refresh" /></div></list-item>
-      <list-item type="update" class="footer"><div class="column"><text class="muted">{{updateText}}</text><input class="refresh" type="button" value="检查更新" onclick="checkUpdate" /></div></list-item>
+      <list-item type="header" class="heading"><div class="brand"><image class="logo" src="/common/logo.png" /><text class="title">Power</text></div><div class="head-meta"><text class="date">{{dateLabel}}</text><text class="status">{{status}}</text></div></list-item>
+      <list-item type="usage" class="hero"><image class="hero-icon" src="/common/icons/monitor.png" /><div class="hero-data"><text class="label">{{computerLabel}}</text><div class="baseline"><text class="hero-value">{{usageValue}}</text></div></div><div class="{{powerClass}}" onclick="togglePower"><image class="power-icon" src="{{powerIcon}}" /></div></list-item>
+      <list-item type="metrics" class="pair"><div class="tile left"><div class="tile-label"><image class="small-icon" src="/common/icons/energy.png" /><text class="label">估算用电</text></div><div class="baseline"><text class="tile-value">{{energyValue}}</text><text class="unit">kWh</text></div></div><div class="tile"><div class="tile-label"><image class="small-icon" src="/common/icons/game.png" /><text class="label">游戏</text></div><div class="baseline"><text class="tile-value">{{gameValue}}</text></div></div></list-item>
+      <list-item type="ai" class="token-row"><div class="tile-label"><image class="token-icon" src="/common/icons/ai.png" /><text class="label">AI Token</text></div><text class="token-value">{{tokenValue}}</text></list-item>
+      <list-item type="quota" class="quota"><text class="quota-title">Codex · 剩余</text><div class="quota-pair"><div class="quota-cell left"><text class="quota-label">{{fiveLabel}}</text><text class="quota-value">{{fiveNumber}}</text><progress class="bar" percent="{{fiveProgress}}" /><text class="reset">{{fiveReset}}</text></div><div class="quota-cell"><text class="quota-label">{{weekLabel}}</text><text class="quota-value">{{weekNumber}}</text><progress class="bar week-bar" percent="{{weekProgress}}" /><text class="reset">{{weekReset}}</text></div></div></list-item>
+      <list-item type="actions" class="footer"><div class="action-row"><div class="action left" onclick="refresh"><image class="action-icon" src="/common/icons/refresh.png" /><text class="action-label">同步</text></div><div class="action" onclick="checkUpdate"><image class="action-icon" src="/common/icons/update.png" /><text class="action-label">更新</text></div></div><text class="foot-note">{{syncedAt}} · {{updateText}}</text></list-item>
     </list>
   </div>
 </template>
@@ -17,36 +14,44 @@
 import view from '../../common/powerprofile-view.cjs'
 import entry from '../../common/entry.json'
 export default {
-  private: { updateText: '应用版本 ' + entry.versionCode, day: '今日', status: '等待手机', usage: '未统计', energy: '未统计', game: '未统计', tokens: '未统计', five: '未知', fiveProgress: 0, fiveReset: '等待额度数据', week: '未知', weekProgress: 0, weekReset: '等待额度数据', freshness: '等待电脑统计', syncedAt: '', connection: null, last: null, timer: null, alive: true },
+  private: { computerLabel: '电脑', power: null, powerAt: 0, powerClass: 'power-button power-unknown', powerIcon: '/common/icons/power-off.png', dateLabel: '今日', usageValue: '—', energyValue: '—', gameValue: '—', tokenValue: '—', fiveNumber: '—', weekNumber: '—', fiveLabel: '5 小时', weekLabel: '本周', partialStale: true, updateText: 'v' + entry.versionCode, day: '今日', status: '等待手机', usage: '未统计', energy: '未统计', game: '未统计', tokens: '未统计', five: '未知', fiveProgress: 0, fiveReset: '等待额度数据', week: '未知', weekProgress: 0, weekReset: '等待额度数据', freshness: '等待电脑统计', syncedAt: '—', connection: null, last: null, timer: null, alive: true },
   onInit() {
     this.alive = true;
-    try { require('@system.storage').get({ key: 'powerprofile.snapshot.v1', success: (raw) => { try { if (!this.last && this.alive) { this.render(JSON.parse(raw)); this.status = '缓存 · 等待同步'; } } catch (error) {} } }); } catch (error) {}
+    try { require('@system.storage').get({ key: 'powerprofile.snapshot.v1', success: (raw) => { try { if (!this.last && this.alive) { this.render(JSON.parse(raw)); this.status = '缓存'; } } catch (error) {} } }); } catch (error) {}
     try {
       this.connection = require('@system.interconnect').instance();
       this.connection.onmessage = (event) => {
         try {
           var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
           if (!this.alive || data.protocol !== 1 || data.entryId !== 'powerprofile') return;
-          if (data.type === 'ota_status') { if (['checking','available','current','downloading','installing','verified','failed','unknown','installer_setup','phone_confirmation','no_release'].indexOf(data.phase) >= 0) this.updateText = 'v' + entry.versionCode + ' · ' + data.text; return; }
+          if (data.type === 'ota_status') { if (['checking','available','current','downloading','installing','verified','failed','unknown','installer_setup','phone_confirmation','phone_submitted','no_release'].indexOf(data.phase) >= 0) this.updateText = 'v' + entry.versionCode + ' · ' + this.updateLabel(data.phase, data.progress); return; }
+          if (data.type === 'powerprofile_power_state') { this.power = data; this.powerAt = Date.now(); this.computerLabel = data.target === 'purifier' ? '净化器测试' : '电脑'; this.powerClass = data.available ? (data.value === true ? 'power-button power-on' : 'power-button') : 'power-button power-unknown'; this.powerIcon = data.value === true ? '/common/icons/power-on.png' : '/common/icons/power-off.png'; if (data.phase === 'failed') this.status = '操作未确认'; return; }
           if (data.type !== 'powerprofile_snapshot') return;
           if (this.last && Date.parse(data.generatedAt) < Date.parse(this.last.generatedAt)) return;
-          this.render(data); this.status = '手机已同步';
+          this.render(data); this.status = this.partialStale ? '含旧值' : '已同步';
           require('@system.storage').set({ key: 'powerprofile.snapshot.v1', value: JSON.stringify(data) });
           this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_snapshot_applied', snapshotAt: data.generatedAt, versionCode: entry.versionCode }, success: function () {}, fail: function () {} });
-        } catch (error) { this.status = '数据待重试'; }
+        } catch (error) { this.status = '待重试'; }
       };
       this.timer = setInterval(() => { if (this.last) this.render(this.last); this.refresh(); }, 60000);
       this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_hello', versionCode: entry.versionCode }, success: function () {}, fail: function () {} });
       this.refresh();
-    } catch (error) { this.status = '手机通道不可用'; }
+    } catch (error) { this.status = '未连接'; }
   },
   onShow() { this.refresh(); },
-  render(data) { var model = view.present(data, Date.now()); this.last = data; for (var key in model) this[key] = model[key]; this.syncedAt = '快照 ' + new Date(Date.parse(data.generatedAt) + 8 * 3600000).toISOString().slice(11, 16) + ' 北京时间'; },
+  togglePower() {
+    if (!this.connection || !this.power || !this.power.available || Date.now() - this.powerAt > 45000 || typeof this.power.value !== 'boolean') { this.status = '读取供电状态'; this.refresh(); return; }
+    var id = ''; for (var i = 0; i < 32; i++) id += Math.floor(Math.random()*16).toString(16);
+    this.power.available = false; this.powerClass = 'power-button power-unknown'; this.status = '正在切换';
+    this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_power_request', id: id, issuedAt: Date.now(), target: this.power.target, desired: !this.power.value }, success: function () {}, fail: () => { this.status = '手机未连接'; } });
+  },
+  render(data) { var model = view.compact(data, Date.now()); this.last = data; for (var key in model) this[key] = model[key]; this.dateLabel = typeof data.day === 'string' ? data.day.slice(5).replace('-', '/') : '今日'; },
+  updateLabel(phase, progress) { var labels = { checking: '检查中', available: '有更新', current: '已是最新', downloading: '下载 ' + Math.max(0, Math.min(100, Number(progress) || 0)) + '%', installing: '安装中', verified: '已更新', failed: '未完成', unknown: '待核实', installer_setup: '需打开 AstroBox', phone_confirmation: '手机待确认', phone_submitted: '手机升级中', no_release: '暂无更新' }; return labels[phase] || '待核实'; },
   checkUpdate() { if (this.connection) this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_update_check' }, success: function () {}, fail: () => { this.updateText = '手机未连接'; } }); },
   refresh() {
     if (!this.connection || !this.alive) return;
-    this.status = '等待同步';
-    try { this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_request' }, success: function () {}, fail: () => { if (this.alive) this.status = '手机未连接 · 缓存'; } }); } catch (error) { this.status = '手机未连接 · 缓存'; }
+    this.status = '同步中';
+    try { this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_request' }, success: function () {}, fail: () => { if (this.alive) this.status = this.last ? '缓存' : '未连接'; } }); } catch (error) { this.status = this.last ? '缓存' : '未连接'; }
   },
   onDestroy() { this.alive = false; if (this.timer) clearInterval(this.timer); }
 }
@@ -54,15 +59,19 @@ export default {
 <style>
 .page { width:336px;height:480px;background-color:#000000; }
 .list { width:336px;height:480px;padding-left:18px;padding-right:18px; }
-.column { width:100%;flex-direction:column; }
-.heading { height:92px;padding-top:18px;padding-left:8px; }
-.title { font-size:28px;font-weight:bold;color:#ffffff; }
-.muted { font-size:16px;color:#999999;margin-top:6px; }
-.card,.quota { background-color:#191919;border-radius:26px;margin-bottom:10px;padding:18px;height:112px; }
-.quota { height:166px; }
-.label { font-size:20px; }
-.value { font-size:32px;font-weight:bold;color:#ffffff;margin-top:7px; }
-.blue { color:#65aaff; }.green { color:#92dc5d; }.orange { color:#ffb357; }.purple { color:#c09bff; }
-.bar { width:260px;height:8px;margin-top:10px;color:#65aaff;background-color:#333333; }.purplebar { color:#c09bff; }
-.footer { height:150px;padding:8px; }.refresh { width:270px;height:48px;margin-top:12px;border-radius:24px;color:#ffffff;background-color:#252525;font-size:22px; }
+.heading { width:300px;height:48px;align-items:center;justify-content:space-between;padding-left:6px;padding-right:6px; }
+.brand,.baseline,.tile-label,.action-row,.quota-pair,.pair { flex-direction:row;align-items:center; }
+.logo { width:26px;height:26px;margin-right:8px; }.title { font-size:20px;color:#e8edf4; }
+.head-meta { flex-direction:column;align-items:flex-end; }.date { font-size:15px;color:#c7cbd3; }.status { font-size:14px;color:#858e9b; }
+.hero,.tile,.token-row,.quota { background-color:#191c21;border-radius:24px; }
+.hero { width:300px;height:90px;margin-bottom:8px;padding:14px;align-items:center; }
+.hero-icon { width:34px;height:34px;margin-right:14px; }.hero-data { flex-direction:column;flex:1; }.label { font-size:16px;color:#b5bdca; }
+.power-button { width:44px;height:44px;border-radius:22px;background-color:#272c33;align-items:center;justify-content:center; }.power-on { background-color:#23372c; }.power-unknown { opacity:0.4; }.power-icon { width:30px;height:30px; }
+.baseline { align-items:flex-end; }.hero-value { font-size:40px;font-weight:bold;color:#f6f8fc; }.unit { font-size:14px;color:#858e9b;margin-left:6px;margin-bottom:5px; }
+.pair { width:300px;height:90px;align-items:flex-start; }.left { margin-right:8px; }
+.tile { width:146px;height:82px;padding:12px;flex-direction:column; }.small-icon { width:20px;height:20px;margin-right:6px; }.tile-value { font-size:28px;font-weight:bold;color:#f6f8fc;margin-top:5px; }
+.token-row { width:300px;height:62px;margin-bottom:8px;padding:14px;align-items:center;justify-content:space-between; }.token-icon { width:24px;height:24px;margin-right:9px; }.token-value { font-size:28px;font-weight:bold;color:#f6f8fc; }
+.quota { width:300px;height:148px;padding:12px;margin-bottom:8px;flex-direction:column; }.quota-title { font-size:16px;color:#b5bdca;margin-bottom:6px; }.quota-pair { width:276px;align-items:flex-start; }.quota-cell { width:134px;flex-direction:column; }.quota-label { font-size:15px;color:#a0a9b8; }.quota-value { font-size:30px;font-weight:bold;color:#f6f8fc;margin-top:2px; }
+.bar { width:128px;height:6px;margin-top:5px;color:#79b5ff;background-color:#30363f; }.week-bar { color:#bbacff; }.reset { font-size:16px;color:#858e9b;margin-top:7px; }
+.footer { width:300px;height:122px;padding-top:24px;flex-direction:column; }.action { width:146px;height:50px;border-radius:25px;background-color:#242830;flex-direction:row;align-items:center;justify-content:center; }.action-icon { width:22px;height:22px;margin-right:8px; }.action-label { font-size:18px;color:#dce1e8; }.foot-note { font-size:14px;color:#858e9b;margin-top:12px;text-align:center;width:300px; }
 </style>
