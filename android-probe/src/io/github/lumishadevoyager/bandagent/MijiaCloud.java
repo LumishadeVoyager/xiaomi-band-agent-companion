@@ -51,7 +51,7 @@ public final class MijiaCloud {
         Map<String,String> params=parameters(route,data.toString(),secret,nonceText);StringBuilder form=new StringBuilder();
         for(Map.Entry<String,String> p:params.entrySet()){if(form.length()>0)form.append('&');form.append(URLEncoder.encode(p.getKey(),"UTF-8")).append('=').append(URLEncoder.encode(p.getValue(),"UTF-8"));}
         HttpsURLConnection c=(HttpsURLConnection)new URL("https://api.io.mi.com/app"+route).openConnection();
-        c.setRequestMethod("POST");c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(15000);c.setDoOutput(true);
+        c.setRequestMethod("POST");c.setInstanceFollowRedirects(false);c.setConnectTimeout(5000);c.setReadTimeout(7000);c.setDoOutput(true);
         c.setRequestProperty("User-Agent",auth.getString("userAgent"));c.setRequestProperty("Accept-Encoding","identity");
         c.setRequestProperty("Content-Type","application/x-www-form-urlencoded");c.setRequestProperty("miot-accept-encoding","GZIP");c.setRequestProperty("miot-encrypt-algorithm","ENCRYPT-RC4");c.setRequestProperty("x-xiaomi-protocal-flag-cli","PROTOCAL-HTTP2");
         String token=auth.getString("serviceToken");c.setRequestProperty("Cookie","cUserId="+auth.getString("cUserId")+";yetAnotherServiceToken="+token+";serviceToken="+token+";timezone_id=Asia/Shanghai;timezone=GMT+08:00;is_daylight=0;dst_offset=0;channel=MI_APP_STORE;countryCode=CN;PassportDeviceId="+auth.getString("deviceId")+";locale=zh_CN");

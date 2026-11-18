@@ -14,6 +14,10 @@ public final class PowerProfileBridge {
     private final NotificationManager notifications;
     private final SharedPreferences prefs;
     private String statusText = "等待电脑统计";
+    private boolean sourceOnline;
+    private long sourceAt;
+    public boolean sourceOnline(){return sourceOnline;}
+    public long sourceAt(){return sourceAt;}
     public String statusText() { return statusText; }
     public PowerProfileBridge(Service service) {
         this.service = service;
@@ -35,6 +39,8 @@ public final class PowerProfileBridge {
         JSONObject identity = new JSONObject().put("protocol", 1).put("entryId", "powerprofile");
         JSONObject result = computer.post("/powerprofile/poll", identity);
         JSONObject relay = result.optJSONObject("relay");
+        sourceOnline=relay!=null&&relay.optBoolean("sourceOnline");sourceAt=0;
+        if(relay!=null)try{sourceAt=java.time.Instant.parse(relay.optString("lastUploadAt")).toEpochMilli();}catch(Exception ignored){}
         statusText = computer.internet() ? (relay != null && relay.optBoolean("sourceOnline") ? "互联网中继已同步；手环显示以设备回执为准" : "互联网中继：电脑离线，保留上次统计") : "电脑统计已读取；手环显示以设备回执为准";
         JSONObject snapshot = result.getJSONObject("snapshot");
         prefs.edit().putString("snapshot", snapshot.toString()).apply();

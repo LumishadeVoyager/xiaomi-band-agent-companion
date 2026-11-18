@@ -11,13 +11,21 @@ const vm = require('node:vm');
 test('real power page emits fixed desired commands, suppresses double taps and never guesses unknown state', () => {
   const ux=fs.readFileSync(path.join(__dirname,'../powerprofile-wearable/src/pages/index/index.ux'),'utf8');
   const source=ux.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'').replace('export default','module.exports =');
-  const sandbox={module:{exports:{}},entry:{versionCode:14},Date,Math,view:{},setInterval,clearInterval};vm.runInNewContext(source,sandbox);
+  const vibrations=[];
+  const sandbox={module:{exports:{}},entry:{versionCode:16},Date,Math,view:{},setInterval,clearInterval,setTimeout:()=>1,clearTimeout:()=>{},require:name=>{assert.equal(name,'@system.vibrator');return {vibrate:event=>vibrations.push(event.mode)};}};vm.runInNewContext(source,sandbox);
   const page=sandbox.module.exports, sent=[];
   const state={...page.private,...page,connection:{send:r=>sent.push(r.data)}};
   state.power={value:true,available:true,target:'purifier'};state.powerAt=Date.now();state.togglePower();state.togglePower();
   assert.equal(sent.filter(x=>x.type==='powerprofile_power_request').length,1);
   assert.equal(sent[0].desired,false);assert.equal(sent[0].target,'purifier');assert.match(sent[0].id,/^[a-f0-9]{32}$/);
   assert.equal(state.power.value,true); // Wait for real cloud readback.
+  assert.equal(vibrations.length,1);assert.match(state.powerClass,/pending/);
+  const commandId=sent[0].id;
+  state.applyPower({value:true,available:true,target:'purifier',phase:'ready'});state.togglePower();
+  assert.equal(state.pendingPowerId,commandId);assert.equal(sent.filter(x=>x.type==='powerprofile_power_request').length,1);
+  const confirmed={value:false,available:true,target:'purifier',commandId,commandPhase:'confirmed'};
+  state.applyPower(confirmed);assert.equal(state.pendingPowerId,'');assert.equal(state.power.value,false);assert.equal(vibrations.length,2);
+  state.applyPower(confirmed);assert.equal(vibrations.length,2); // Periodic receipt is not a new haptic.
   sent.length=0;state.power={value:null,available:false,target:'computer'};state.togglePower();
   assert.equal(sent.some(x=>x.type==='powerprofile_power_request'),false);
 });

@@ -28,7 +28,7 @@ for (const entry of powerprofile ? [{ id: 'powerprofile', name: 'PowerProfile', 
   if (powerprofile) {
     const manifestPath = path.join(work, 'src/manifest.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    manifest.features = [{ name: 'system.interconnect' }, { name: 'system.storage' }];
+    manifest.features = [{ name: 'system.interconnect' }, { name: 'system.storage' }, { name: 'system.vibrator' }];
     manifest.router.pages = { 'pages/index': { component: 'index' } };
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   }

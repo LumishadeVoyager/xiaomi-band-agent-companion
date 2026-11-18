@@ -22,6 +22,8 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private final ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService otaWork = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService powerWork = Executors.newSingleThreadScheduledExecutor();
+    private final ExecutorService powerCommands = Executors.newSingleThreadExecutor();
+    private final ExecutorService powerReports = Executors.newSingleThreadExecutor();
     private String entry, token;
     private volatile String nodeId;
     private volatile boolean recording;
@@ -50,7 +52,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         try {
             JSONObject config = new JSONObject(new String(OtaCoordinator.read(getAssets().open("development.json"), 8192), StandardCharsets.UTF_8));
             entry = config.getString("entryId"); token = config.optString("token", ""); updates = new OtaCoordinator(this, entry, this); diagnostics = new DiagnosticStore(this); computer = new ComputerLink(this);
-            if ("powerprofile".equals(entry)) { powerprofile = new PowerProfileBridge(this); mijia = new MijiaPower(this); }
+            if ("powerprofile".equals(entry)) { powerprofile = new PowerProfileBridge(this); mijia = new MijiaPower(this,powerReports,this::powerState); }
             else diagnostics.phone(entry, ApkUpdateInstaller.current(this), "phone_service_started", new JSONObject().put("phase", "started"), false);
         } catch (Exception error) { state("error", "更新配置加载失败：" + error.getClass().getSimpleName(), 0); stopSelf(); return; }
         running=true;startedAt=System.currentTimeMillis();startedElapsed=SystemClock.elapsedRealtime();
@@ -121,7 +123,10 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
             String type = message.optString("type"); nodeId = source;
             getSharedPreferences("runtime",0).edit().putLong("lastWearAt",System.currentTimeMillis()).apply();
             if (powerprofile != null) {
-                if ("powerprofile_power_request".equals(type)) powerWork.execute(() -> { try { mijia.request(computer, message); } catch (Exception ignored) {} powerState(); });
+                if ("powerprofile_power_request".equals(type)) {
+                    try{MijiaPower.Command command=mijia.accept(message);if(command!=null)powerCommands.execute(()->mijia.execute(computer,command));}
+                    catch(Exception ignored){try{send(source,new JSONObject().put("protocol",1).put("entryId",entry).put("type","powerprofile_power_rejected").put("commandId",message.optString("id")));}catch(Exception unavailable){}}
+                }
                 if ("powerprofile_request".equals(type) || "powerprofile_hello".equals(type)) powerWork.execute(() -> { mijia.tick(computer); powerState(); });
                 if ("powerprofile_update_check".equals(type)) otaWork.execute(() -> updates.check(true, false));
                 if ("powerprofile_hello".equals(type)) { final long actual = message.optLong("versionCode"); if (actual > 0) otaWork.execute(() -> updates.hello(actual)); }
@@ -190,7 +195,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private void pollComputer() {
         try {
             if (computer == null || !computer.paired() || recording) return;
-            if (powerprofile != null) { powerprofile.poll(computer, nodeId); getSharedPreferences("runtime",0).edit().putLong("lastSyncAt",System.currentTimeMillis()).apply();state("computer_synced", powerprofile.statusText(), 0); return; }
+            if (powerprofile != null) { powerprofile.poll(computer, nodeId); mijia.computerObservation(powerprofile.sourceOnline(),powerprofile.sourceAt());getSharedPreferences("runtime",0).edit().putLong("lastSyncAt",System.currentTimeMillis()).apply();state("computer_synced", powerprofile.statusText(), 0); return; }
             org.json.JSONArray commands = computer.post("/poll", new JSONObject().put("entryId", entry)).getJSONArray("commands");
             for (int i = 0; i < commands.length(); i++) {
                 JSONObject command = commands.getJSONObject(i); String type = command.getString("type");
@@ -209,5 +214,5 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         }
     }
     @Override public IBinder onBind(Intent intent) { return null; }
-    @Override public void onDestroy() { running=false;if(networkCallback!=null)try{getSystemService(android.net.ConnectivityManager.class).unregisterNetworkCallback(networkCallback);}catch(RuntimeException ignored){}detachNode();work.shutdownNow(); maintenance.shutdownNow(); otaWork.shutdownNow(); powerWork.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }
+    @Override public void onDestroy() { running=false;if(networkCallback!=null)try{getSystemService(android.net.ConnectivityManager.class).unregisterNetworkCallback(networkCallback);}catch(RuntimeException ignored){}detachNode();work.shutdownNow(); maintenance.shutdownNow(); otaWork.shutdownNow(); powerWork.shutdownNow();powerCommands.shutdownNow();powerReports.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }
 }

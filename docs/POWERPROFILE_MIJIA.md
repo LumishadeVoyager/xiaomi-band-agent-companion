@@ -13,3 +13,10 @@
 仅空气净化器参与切换。`scripts/pair-mijia-cloud.py --publish --active purifier --test-purifier` 发布一次短期有效、根签名的测试请求，手机保存初始状态后反转并读回，再恢复并读回；手机重启后先恢复未完成的测试，不重复反转。任何断点遗留恢复失败必须标注，不能报告测试通过。测试代码固定选择 purifier，不能指向电脑插座。
 
 完成后发布不带测试请求的 computer 配置，只读取电脑插座，不切换其开关。用 `--status` 查询私有中继收到的手机版本、目标、读回状态和测试回执。真机结果另行记录；构建/模拟测试不代表真实云端调用成功。
+
+
+## 插座开不等于电脑已启动
+
+用户现场记录为 S4 休眠、插座开后约 5W、屏幕全黑且实体电源键才能恢复。软件只能确认插座供电和电脑新心跳，不能把固件唤醒当作云端 API 成功的必然后果。用户不记得 BIOS 选项；本轮不重启、修改 BIOS 或切换电脑电源测试。参考：[Microsoft S4 状态](https://learn.microsoft.com/en-us/windows/win32/power/system-power-states)、[SYSTEM_POWER_STATE 的 5 对应休眠](https://learn.microsoft.com/en-us/windows/desktop/api/winnt/ne-winnt-system_power_state)。
+
+v16 仅改善命令响应与反馈：手机独立执行命令，立即发送接收/处理/结果状态，云端诊断异步；手环等待相同 commandId 的结果，旧轮询不能提前解锁。恢复通电后显示待上线，新的电脑上传才能确认在线。系统 vibrator 使用 [Vela 官方接口](https://iot.mi.com/vela/quickapp/en/features/system/vibrator.html)，只声明并调用 vibrate，不使用仅部分手表支持的 start/stop。物理效果需要目标真机确认。
