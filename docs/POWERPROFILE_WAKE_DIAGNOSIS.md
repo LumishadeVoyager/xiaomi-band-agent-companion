@@ -42,3 +42,17 @@
 后续在 TUXEDO Computers 的 Uniwill 驱动主线发现 AC Auto Boot 的已知 EC 控制（0x0726 的 bit 3），同时该驱动明确按 DMI 白名单启用支持；本机主板 GM6PQ0X 不在已验证名单。不能将同平台地址直接视为本机已验证的设置，更不能猜测写入。查到了对应 GUID 的本机 WMI 类 AcpiTest_MULong，但普通权限查询实例返回拒绝访问，未调用其硬件方法。
 
 来源：[厂商驱动接口定义](https://github.com/tuxedocomputers/tuxedo-drivers/blob/main/src/uniwill_interfaces.h)、[厂商驱动支持名单与 AC Auto Boot 实现](https://github.com/tuxedocomputers/tuxedo-drivers/blob/main/src/uniwill_keyboard.h)。只读基线和进入固件设置辅助脚本已在本地准备，脚本尚未执行。等待用户确认可安排电脑中断后继续 BIOS 核对与受控测试；没有把这一线索写成修复完成。
+
+## 原厂控制台截图与触发条件纠正
+
+用户截图确认设置在机械革命控制台，“来电自动开机”已经开启。原文限定“关机状态”，要求“未充电状态改变为充电状态”；保持充电状态关机不会自动开机。此前将设置入口指向 BIOS 的判断过早，现以本机原厂控制台为准，不再继续盲找 BIOS。
+
+需区分四件事：插座继电器是否开启、EC 是否感知 AC 输入、电池是否正在充电、Windows 是 S4 还是 S5。单次只读观测显示本机 AC 在线、电量 100%、charging 标志未置位，证明接电与电池实际充电不是同一状态。原厂通俗文案不证明硬件按 battery charging 位触发，不能据此断言满电导致失败，也不应先更改充电阈值或放电。
+
+优先对照两个条件：S4 是否在控制台功能支持范围内；以及是否完成关断、休眠和有效 AC 移除后才恢复供电。截图说关机，未证明支持 S4，也未证明不支持。重复写 on 不产生新的 off→on 边沿；过早恢复供电可能错过唤醒触发窗口，但当前尚未确认这是根因。
+
+候选调整应是“确认关断 → 等待休眠/掉电稳定 → 单次恢复 → 等待新电脑心跳”。先用 30 秒作为受控对照间隔，不称为已验证的硬件最小要求；验证有效后再固化参数。不能在开机失败时自动循环切电，以免切断刚恢复运行的电脑。来电自动开机保持开启，关机 USB 供电的影响尚无证据，暂不盲改。
+
+本轮仅单次只读采样，未启动额外常驻观察进程，未执行插座、休眠、关机、重启、EC 或 EFI 写入。受控对照需区分“已断电并完成 S4 后重新来电”和“完整 S5 关机后重新来电”，不能悄悄把保留会话的休眠替换成关机。具体根因及修复仍待验证。原图只留本地。
+
+参考：[Microsoft 接电与充电状态字段](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-system_power_status)、[S4 与 S5 区别](https://learn.microsoft.com/en-us/windows/win32/power/system-power-states)。
