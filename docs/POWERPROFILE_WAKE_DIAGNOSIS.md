@@ -35,3 +35,10 @@
 只读诊断、证据和对照步骤已准备。未切换电脑插座、请求休眠/重启、写 EFI 变量、写 EC 寄存器、覆盖 ACPI、修改电源计划或 C-state。固件表和私有运行记录仅留本地，不进入仓库。
 
 参考：[Microsoft 固件表读取](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemfirmwaretable)、[Microsoft 系统电源状态](https://learn.microsoft.com/en-us/windows/win32/power/system-power-states)、[ACPICA 官方发行](https://github.com/open-acpica/acpica/releases)。
+
+
+## 同平台 AC Auto Boot 线索
+
+后续在 TUXEDO Computers 的 Uniwill 驱动主线发现 AC Auto Boot 的已知 EC 控制（0x0726 的 bit 3），同时该驱动明确按 DMI 白名单启用支持；本机主板 GM6PQ0X 不在已验证名单。不能将同平台地址直接视为本机已验证的设置，更不能猜测写入。查到了对应 GUID 的本机 WMI 类 AcpiTest_MULong，但普通权限查询实例返回拒绝访问，未调用其硬件方法。
+
+来源：[厂商驱动接口定义](https://github.com/tuxedocomputers/tuxedo-drivers/blob/main/src/uniwill_interfaces.h)、[厂商驱动支持名单与 AC Auto Boot 实现](https://github.com/tuxedocomputers/tuxedo-drivers/blob/main/src/uniwill_keyboard.h)。只读基线和进入固件设置辅助脚本已在本地准备，脚本尚未执行。等待用户确认可安排电脑中断后继续 BIOS 核对与受控测试；没有把这一线索写成修复完成。
