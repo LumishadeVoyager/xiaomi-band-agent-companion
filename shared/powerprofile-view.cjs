@@ -33,6 +33,6 @@ function compact(data, now) {
   }
   var q=data.quota||{}, five=quota(q.fiveHour,q.observedAt,'5 小时'), week=quota(q.weekly,q.observedAt,'本周');
   var at=Date.parse(data.generatedAt), sync=isFinite(at)?new Date(at+8*3600000).toISOString().slice(11,16):'—';
-  return { usageValue: value(data.usageSeconds,clock), energyValue: value(data.energyKWh,function(n){return n.toFixed(2);}), gameValue: value(data.gameSeconds,clock), tokenValue: value(data.aiTokens,tokens), fiveNumber: five.value, fiveLabel: five.label, fiveReset: five.reset, fiveProgress: five.progress, weekNumber: week.value, weekLabel: week.label, weekReset: week.reset, weekProgress: week.progress, syncedAt: sync, partialStale: present(data,now).freshness === '部分统计未更新' || five.stale || week.stale };
+  return { usageValue: value(data.usageSeconds,clock), energyValue: value(data.energyKWh,function(n){return n>0&&n<0.01?'<0.01':n.toFixed(2);}), gameValue: value(data.gameSeconds,clock), tokenValue: value(data.aiTokens,tokens), fiveNumber: five.value, fiveLabel: five.label, fiveReset: five.reset, fiveProgress: five.progress, weekNumber: week.value, weekLabel: week.label, weekReset: week.reset, weekProgress: week.progress, syncedAt: sync, snapshotStale: !isFinite(at)||now-at>90000, snapshotAgeMinutes: isFinite(at)?Math.max(0,Math.floor((now-at)/60000)):0, partialStale: present(data,now).freshness === '部分统计未更新' || five.stale || week.stale };
 }
 module.exports = { present, duration, windowText, compact, resetCountdown };

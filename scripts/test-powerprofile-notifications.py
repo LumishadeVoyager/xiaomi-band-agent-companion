@@ -63,15 +63,16 @@ import org.json.*; public class ComputerLink {
  return response;}}''',
 'NotificationBridgeTest.java': '''import android.app.*; import org.json.*; import io.github.lumishadevoyager.bandagent.*;
 public class NotificationBridgeTest {
+ static void poll(PowerProfileBridge bridge, ComputerLink relay)throws Exception {bridge.deliverNotifications(relay,bridge.readSnapshot(relay));}
  static void check(boolean ok){if(!ok)throw new AssertionError();}
  public static void main(String[] args)throws Exception {
  Service os=new Service(); ComputerLink relay=new ComputerLink(); PowerProfileBridge bridge=new PowerProfileBridge(os);
  relay.response=new JSONObject().put("snapshot",new JSONObject().put("marker",17)).put("events",new JSONArray().put(new JSONObject().put("id",new String(new char[64]).replace('\\0','a'))));
- os.allowed=false;bridge.poll(relay);check(os.manager.posted==0&&relay.acknowledgements==0&&os.prefs.getString("snapshot", "").contains("17"));
- os.allowed=true;relay.failAck=true;try{bridge.poll(relay);throw new AssertionError();}catch(java.io.IOException expected){}
+ os.allowed=false;poll(bridge,relay);check(os.manager.posted==0&&relay.acknowledgements==0&&os.prefs.getString("snapshot", "").contains("17"));
+ os.allowed=true;relay.failAck=true;try{poll(bridge,relay);throw new AssertionError();}catch(java.io.IOException expected){}
  check(os.manager.posted==1&&relay.acknowledgements==0);
- relay.failAck=false;bridge.poll(relay);check(os.manager.posted==1&&relay.acknowledgements==1);
- os.manager.channel.importance=0;bridge.poll(relay);check(relay.acknowledgements==1);
+ relay.failAck=false;poll(bridge,relay);check(os.manager.posted==1&&relay.acknowledgements==1);
+ os.manager.channel.importance=0;poll(bridge,relay);check(relay.acknowledgements==1);
  System.out.println("Actual notification bridge: no SDK dependency, cache without permission, withheld ACK, ACK retry without duplicate alert, disabled channel passed");
  }}'''
 }

@@ -66,6 +66,8 @@ export function phoneReport(value: unknown, now = Date.now()): Record<string, un
   if((v.phoneVersion as number)<1 || (v.startedAt as number)<1) throw new Error('invalid_runtime_identity');
   for(const key of ['wearConnected','batteryUnrestricted','notificationsAllowed']) {if(typeof v[key] !== 'boolean')throw new Error('invalid_runtime_boolean');out[key]=v[key];}
   if(v.mijiaConfigError !== undefined){if(typeof v.mijiaConfigError !== 'string' || !/^[a-zA-Z0-9_]{0,80}$/.test(v.mijiaConfigError))throw new Error('invalid_error_code');out.mijiaConfigError=v.mijiaConfigError;}
+  for(const key of ['activityVisible','screenOn','powerSave','deviceIdle']) if(v[key]!==undefined){if(typeof v[key]!=='boolean')throw new Error('invalid_runtime_boolean');out[key]=v[key];}
+  for(const key of ['healthAt','syncAttemptAt','lastSendAttemptAt','lastSendFailureAt']) if(v[key]!==undefined){if(!Number.isSafeInteger(v[key])||(v[key] as number)<0||(v[key] as number)>now+300000)throw new Error('invalid_runtime_number');out[key]=v[key];}
   return out;
 }
 export async function readBody(request: Request, limit: number): Promise<unknown> {

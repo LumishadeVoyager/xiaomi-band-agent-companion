@@ -19,6 +19,12 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private long startedAt, startedElapsed;
     private android.net.ConnectivityManager.NetworkCallback networkCallback;
     private final ScheduledExecutorService work = Executors.newSingleThreadScheduledExecutor();
+    private final ExecutorService noticeWork=Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean noticeBusy=new java.util.concurrent.atomic.AtomicBoolean();
+    private final ExecutorService healthReports=Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean reportBusy=new java.util.concurrent.atomic.AtomicBoolean();
+    private final java.util.concurrent.atomic.AtomicBoolean syncQueued=new java.util.concurrent.atomic.AtomicBoolean();
+    private long registeredAt;
     private final ScheduledExecutorService health = Executors.newSingleThreadScheduledExecutor();
     private final ExecutorService wearableOut = new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(16),new ThreadPoolExecutor.DiscardOldestPolicy());
     private PowerManager.WakeLock cpu;
@@ -66,17 +72,17 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         otaWork.scheduleWithFixedDelay(() -> safe(() -> updates.poll()), 5, 5, TimeUnit.SECONDS);
         work.scheduleWithFixedDelay(() -> safe(this::findNode), 5, 30, TimeUnit.SECONDS);
         maintenance.scheduleWithFixedDelay(this::uploadDiagnostics, 3, 10, TimeUnit.SECONDS);
-        maintenance.scheduleWithFixedDelay(this::pollComputer, 7, 15, TimeUnit.SECONDS);
+        health.scheduleWithFixedDelay(this::requestSync,7,15,TimeUnit.SECONDS);
         if (mijia != null) powerWork.scheduleWithFixedDelay(() -> safe(() -> { mijia.tick(computer); powerState(); }), 4, 5, TimeUnit.SECONDS);
         if (powerprofile != null) {
-            health.scheduleWithFixedDelay(() -> safe(this::phoneReport), 12, 60, TimeUnit.SECONDS);
+            health.scheduleWithFixedDelay(() -> {if(reportBusy.compareAndSet(false,true))healthReports.execute(() -> {try{phoneReport();}finally{reportBusy.set(false);}});},12,60,TimeUnit.SECONDS);
             cpu=getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,getPackageName()+":bridge");
             cpu.setReferenceCounted(false);
             // User-requested continuous wearable sync. Each lease expires if health stops.
             health.scheduleWithFixedDelay(() -> safe(this::keepAwake),0,45,TimeUnit.SECONDS);
             environment=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){
                 health.execute(() -> safe(BridgeService.this::keepAwake));
-                maintenance.execute(BridgeService.this::pollComputer);
+                requestSync();
                 work.execute(() -> safe(BridgeService.this::findNode));
             }};
             IntentFilter changes=new IntentFilter(Intent.ACTION_SCREEN_ON);
@@ -84,7 +90,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
             changes.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
             registerReceiver(environment,changes,Context.RECEIVER_NOT_EXPORTED);
             networkCallback=new android.net.ConnectivityManager.NetworkCallback(){@Override public void onAvailable(android.net.Network network){
-                if(!maintenance.isShutdown())maintenance.execute(BridgeService.this::pollComputer);
+                if(!maintenance.isShutdown())requestSync();
                 if(!work.isShutdown())work.execute(BridgeService.this::findNode);
             }};
             try{getSystemService(android.net.ConnectivityManager.class).registerDefaultNetworkCallback(networkCallback);}catch(RuntimeException ignored){networkCallback=null;}
@@ -95,7 +101,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         if (intent != null) {
             String supplied = intent.getStringExtra("nodeId");
             if (supplied != null && !registered) nodeId = supplied;
-            if ("reconnect".equals(intent.getAction())) { detachNode(); maintenance.execute(this::pollComputer); }
+            if ("reconnect".equals(intent.getAction())) { detachNode(); requestSync(); }
             if ("check".equals(intent.getAction()) && updates != null) otaWork.execute(() -> updates.check(true, false));
             if ("installer_setup".equals(intent.getAction())) otaWork.execute(() -> updates.prepareInstaller());
             if ("powerprofile_test_notice".equals(intent.getAction()) && powerprofile != null) maintenance.schedule(() -> {
@@ -105,6 +111,10 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
             if ("reload_link".equals(intent.getAction())) maintenance.execute(() -> { try { computer = new ComputerLink(this); uploadDiagnostics(); } catch (Exception error) { state("error", "电脑配对加载失败", 0); } });
         }
         work.execute(() -> safe(this::findNode)); return START_STICKY;
+    }
+    private void requestSync() {
+        if(closing || !syncQueued.compareAndSet(false,true))return;
+        maintenance.execute(() -> {try{pollComputer();}finally{syncQueued.set(false);}});
     }
     private void safe(Runnable task) {
         BackgroundLoop.run(task, error -> {
@@ -126,10 +136,10 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         try { Wearable.getNodeApi(this).getConnectedNodes().addOnSuccessListener(nodes -> {
             if (nodes.size() != 1) { detachNode(); state("disconnected", "手环离线，保持云端连接并自动重连", 0); return; }
             String found=nodes.get(0).id;
-            if(registered && found.equals(nodeId)){registering=false;return;}
+            if(registered && found.equals(nodeId) && SystemClock.elapsedRealtime()-registeredAt<120000){registering=false;return;}
             detachNode();nodeId=found;registering=true;
             Wearable.getMessageApi(this).addListener(nodeId, listener)
-                .addOnSuccessListener(ignored -> { if(!found.equals(nodeId))return;registered = true; registering = false;getSharedPreferences("runtime",0).edit().putBoolean("wearConnected",true).apply();state("connected", "手环已连接，后台同步中", 0); })
+                .addOnSuccessListener(ignored -> { if(!found.equals(nodeId))return;registered = true; registering = false; registeredAt=SystemClock.elapsedRealtime();getSharedPreferences("runtime",0).edit().putBoolean("wearConnected",true).apply();state("connected", "手环已连接，后台同步中", 0); })
                 .addOnFailureListener(error -> { registering = false; state("error", "手环消息授权待完成", 0); });
         }).addOnFailureListener(error -> { detachNode(); }); } catch(RuntimeException ignored){detachNode();}
     }
@@ -148,7 +158,11 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     }
     private void send(String destination, JSONObject message) {
         byte[] bytes=message.toString().getBytes(StandardCharsets.UTF_8);
-        wearableOut.execute(() -> safe(() -> Wearable.getMessageApi(this).sendMessage(destination,bytes)));
+        wearableOut.execute(() -> safe(() -> {
+            getSharedPreferences("runtime",0).edit().putLong("lastSendAttemptAt",System.currentTimeMillis()).apply();
+            Wearable.getMessageApi(this).sendMessage(destination,bytes)
+                .addOnFailureListener(error -> getSharedPreferences("runtime",0).edit().putLong("lastSendFailureAt",System.currentTimeMillis()).apply());
+        }));
     }
     private void powerState() { if (mijia != null) try { JSONObject current=mijia.state();getSharedPreferences("runtime",0).edit().putString("powerTarget",current.optString("target")).putString("powerPhase",current.optString("phase")).putBoolean("powerAvailable",current.optBoolean("available")).apply();if(nodeId!=null)send(nodeId,current); } catch (Exception ignored) {} }
     private void receive(String source, byte[] bytes) {
@@ -165,7 +179,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
                 if ("powerprofile_request".equals(type) || "powerprofile_hello".equals(type)) powerWork.execute(() -> { mijia.tick(computer); powerState(); });
                 if ("powerprofile_update_check".equals(type)) otaWork.execute(() -> updates.check(true, false));
                 if ("powerprofile_hello".equals(type)) { final long actual = message.optLong("versionCode"); if (actual > 0) otaWork.execute(() -> updates.hello(actual)); }
-                if ("powerprofile_request".equals(type)) maintenance.execute(this::pollComputer);
+                if ("powerprofile_request".equals(type)) requestSync();
                 if ("powerprofile_snapshot_applied".equals(type)) {
                     final String snapshotAt = message.optString("snapshotAt"); final int versionCode = message.optInt("versionCode");
                     otaWork.execute(() -> updates.hello(versionCode));
@@ -230,7 +244,11 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private void pollComputer() {
         try {
             if (computer == null || !computer.paired() || recording) return;
-            if (powerprofile != null) { powerprofile.poll(computer); if(nodeId!=null){String destination=nodeId;String snapshot=getSharedPreferences("powerprofile",0).getString("snapshot","");if(!snapshot.isEmpty())send(destination,new JSONObject(snapshot));} mijia.computerObservation(powerprofile.sourceOnline(),powerprofile.sourceAt());getSharedPreferences("runtime",0).edit().putLong("lastSyncAt",System.currentTimeMillis()).putString("syncError", "").apply();state("computer_synced", powerprofile.statusText(), 0); return; }
+            if (powerprofile != null) { getSharedPreferences("runtime",0).edit().putLong("syncAttemptAt",System.currentTimeMillis()).apply();
+                org.json.JSONArray notices=powerprofile.readSnapshot(computer);
+                if(nodeId!=null){String destination=nodeId;String snapshot=getSharedPreferences("powerprofile",0).getString("snapshot","");if(!snapshot.isEmpty())send(destination,new JSONObject(snapshot));}
+                if(noticeBusy.compareAndSet(false,true))noticeWork.execute(() -> {try{powerprofile.deliverNotifications(computer,notices);}catch(Exception error){getSharedPreferences("runtime",0).edit().putLong("noticeFailureAt",System.currentTimeMillis()).apply();}finally{noticeBusy.set(false);}});
+                mijia.computerObservation(powerprofile.sourceOnline(),powerprofile.sourceAt());getSharedPreferences("runtime",0).edit().putLong("lastSyncAt",System.currentTimeMillis()).putString("syncError", "").apply();state("computer_synced", powerprofile.statusText(), 0); return; }
             org.json.JSONArray commands = computer.post("/poll", new JSONObject().put("entryId", entry)).getJSONArray("commands");
             for (int i = 0; i < commands.length(); i++) {
                 JSONObject command = commands.getJSONObject(i); String type = command.getString("type");
@@ -250,5 +268,5 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         }
     }
     @Override public IBinder onBind(Intent intent) { return null; }
-    @Override public synchronized void onDestroy() { closing=true;running=false;health.shutdownNow();wearableOut.shutdownNow();if(cpu!=null&&cpu.isHeld())cpu.release();if(environment!=null)unregisterReceiver(environment);if(networkCallback!=null)try{getSystemService(android.net.ConnectivityManager.class).unregisterNetworkCallback(networkCallback);}catch(RuntimeException ignored){}detachNode();work.shutdownNow(); maintenance.shutdownNow(); otaWork.shutdownNow(); powerWork.shutdownNow();powerCommands.shutdownNow();powerReports.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }
+    @Override public synchronized void onDestroy() { closing=true;running=false;health.shutdownNow();healthReports.shutdownNow();noticeWork.shutdownNow();wearableOut.shutdownNow();if(cpu!=null&&cpu.isHeld())cpu.release();if(environment!=null)unregisterReceiver(environment);if(networkCallback!=null)try{getSystemService(android.net.ConnectivityManager.class).unregisterNetworkCallback(networkCallback);}catch(RuntimeException ignored){}detachNode();work.shutdownNow(); maintenance.shutdownNow(); otaWork.shutdownNow(); powerWork.shutdownNow();powerCommands.shutdownNow();powerReports.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }
 }

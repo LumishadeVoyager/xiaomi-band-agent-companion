@@ -17,7 +17,10 @@ public final class PhoneStatus {
     }
     static JSONObject report(Context context,String session,long startedAt,long uptime,boolean connected) throws Exception {
         android.content.SharedPreferences state=context.getSharedPreferences("runtime",0);
-        return new JSONObject().put("protocol",1).put("entryId","powerprofile").put("phoneVersion",ApkUpdateInstaller.current(context))
+        PowerManager power=context.getSystemService(PowerManager.class);
+        return new JSONObject().put("activityVisible",BridgeActivity.visible).put("screenOn",power.isInteractive()).put("powerSave",power.isPowerSaveMode()).put("deviceIdle",power.isDeviceIdleMode())
+            .put("healthAt",state.getLong("healthAt",0)).put("syncAttemptAt",state.getLong("syncAttemptAt",0)).put("lastSendAttemptAt",state.getLong("lastSendAttemptAt",0)).put("lastSendFailureAt",state.getLong("lastSendFailureAt",0))
+            .put("protocol",1).put("entryId","powerprofile").put("phoneVersion",ApkUpdateInstaller.current(context))
             .put("session",session).put("startedAt",startedAt).put("uptimeSeconds",uptime)
             .put("wearConnected",connected).put("batteryUnrestricted",unrestricted(context)).put("notificationsAllowed",notifications(context))
             .put("lastSyncAt",state.getLong("lastSyncAt",0)).put("lastWearAt",state.getLong("lastWearAt",0))

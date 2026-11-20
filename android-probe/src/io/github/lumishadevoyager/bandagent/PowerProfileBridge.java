@@ -32,8 +32,8 @@ public final class PowerProfileBridge {
             .setSmallIcon(android.R.drawable.stat_notify_chat).setContentTitle("PowerProfile 通知测试")
             .setContentText("这是一条手机到手环的通知链路验收测试").setAutoCancel(true).build());
     }
-    public void poll(ComputerLink computer) throws Exception {
-        if (!computer.paired()) return;
+    public JSONArray readSnapshot(ComputerLink computer) throws Exception {
+        if (!computer.paired()) return new JSONArray();
         JSONObject identity = new JSONObject().put("protocol", 1).put("entryId", "powerprofile");
         JSONObject result = computer.post("/powerprofile/poll", identity);
         JSONObject relay = result.optJSONObject("relay");
@@ -42,7 +42,11 @@ public final class PowerProfileBridge {
         statusText = computer.internet() ? (relay != null && relay.optBoolean("sourceOnline") ? "互联网中继已同步；手环显示以设备回执为准" : "互联网中继：电脑离线，保留上次统计") : "电脑统计已读取；手环显示以设备回执为准";
         JSONObject snapshot = result.getJSONObject("snapshot");
         prefs.edit().putString("snapshot", snapshot.toString()).apply();
-        JSONArray events = result.getJSONArray("events"), accepted = new JSONArray();
+        return result.getJSONArray("events");
+    }
+    public void deliverNotifications(ComputerLink computer,JSONArray events) throws Exception {
+        JSONObject identity=new JSONObject().put("protocol",1).put("entryId","powerprofile");
+        JSONArray accepted=new JSONArray();
         if (service.checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED || !notifications.areNotificationsEnabled()) { prefs.edit().putString("noticeState","notifications_disabled").apply(); return; }
         NotificationChannel channel = notifications.getNotificationChannel(CHANNEL);
         if (channel == null || channel.getImportance() == NotificationManager.IMPORTANCE_NONE) {prefs.edit().putString("noticeState","channel_disabled").apply(); return;}

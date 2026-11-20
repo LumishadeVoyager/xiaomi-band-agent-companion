@@ -29,6 +29,7 @@ import org.json.JSONObject;
 
 /** Development-only bridge: no phone microphone, cloud calls, or Agent execution. */
 public final class BridgeActivity extends Activity {
+    public static volatile boolean visible;
     private TextView status;
     private PowerProfilePhoneUi phoneUi;
     private Node node;
@@ -88,8 +89,8 @@ public final class BridgeActivity extends Activity {
         Button button = new Button(this); button.setText(title); button.setOnClickListener(v -> action.run()); layout.addView(button);
     }
     private void show(String text) { runOnUiThread(() -> {if(phoneUi!=null)phoneUi.note(text);else status.setText(text);}); }
-    @Override protected void onResume(){super.onResume();if(phoneUi!=null)phoneUi.start();}
-    @Override protected void onPause(){if(phoneUi!=null)phoneUi.stop();super.onPause();}
+    @Override protected void onResume(){super.onResume();visible=true;if(phoneUi!=null)phoneUi.start();}
+    @Override protected void onPause(){visible=false;if(phoneUi!=null)phoneUi.stop();super.onPause();}
     private void connect() {
         Wearable.getNodeApi(this).getConnectedNodes().addOnSuccessListener(nodes -> {
             if (nodes.isEmpty()) { show("小米运动健康未返回已连接设备"); return; }

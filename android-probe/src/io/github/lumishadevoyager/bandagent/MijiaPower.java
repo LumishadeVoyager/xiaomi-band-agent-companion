@@ -17,7 +17,7 @@ public final class MijiaPower {
     private volatile Boolean actual;
     private volatile String phase="unconfigured", commandId="", commandPhase="";
     private volatile boolean commandBusy, sourceOnline;
-    private volatile long sourceAt, onRequestedAt;
+    private volatile long sourceAt, onRequestedAt, sourceObservedAt;
     private final Object commands=new Object();
     private final java.util.concurrent.Executor reports;
     private final Runnable changed;
@@ -57,10 +57,10 @@ public final class MijiaPower {
     public JSONObject state() throws Exception {
         boolean fresh=actual!=null&&System.currentTimeMillis()-observedAt<45000;
         long now=System.currentTimeMillis();
-        String computer=sourceOnline&&now-sourceAt<45000&&sourceAt>=onRequestedAt?"online":onRequestedAt>0&&now-onRequestedAt<90000?"starting":"offline";
+        String computer=now-sourceObservedAt>45000?"unknown":sourceOnline&&now-sourceAt<45000&&sourceAt>=onRequestedAt?"online":onRequestedAt>0&&now-onRequestedAt<90000?"starting":"offline";
         return new JSONObject().put("protocol",1).put("entryId","powerprofile").put("type","powerprofile_power_state").put("target",target()).put("value",fresh?actual:JSONObject.NULL).put("available",fresh&&!commandBusy&&!prefs.contains("restoreValue")).put("phase",phase).put("observedAt",observedAt).put("commandId",commandId).put("commandPhase",commandPhase).put("computerStatus",computer);
     }
-    public void computerObservation(boolean online,long at){sourceOnline=online;sourceAt=at;changed.run();}
+    public void computerObservation(boolean online,long at){sourceOnline=online;sourceAt=at;sourceObservedAt=System.currentTimeMillis();changed.run();}
     private void report(ComputerLink link,String result,String testId,Boolean value) throws Exception {
         final JSONObject body=new JSONObject().put("protocol",1).put("entryId","powerprofile").put("target",target()).put("revision",config.getLong("revision")).put("phase",result).put("value",value==null?JSONObject.NULL:value).put("testId",testId).put("phoneVersion",ApkUpdateInstaller.current(context));
         // An audit upload must never delay a wrist receipt or invalidate a readback.

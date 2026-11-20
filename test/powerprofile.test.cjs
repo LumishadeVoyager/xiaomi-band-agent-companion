@@ -28,6 +28,7 @@ test('real power page emits fixed desired commands, suppresses double taps and n
   state.applyPower(confirmed);assert.equal(vibrations.length,2); // Periodic receipt is not a new haptic.
   sent.length=0;state.power={value:null,available:false,target:'computer'};state.togglePower();
   assert.equal(sent.some(x=>x.type==='powerprofile_power_request'),false);
+  state.applyPower({value:true,available:true,target:'computer',computerStatus:'unknown'});assert.match(state.computerLabel,/待同步/);
 });
 test('compact layout keeps units, unknown values and stale quota distinct', () => {
   const { compact } = require('../shared/powerprofile-view.cjs');
@@ -35,6 +36,8 @@ test('compact layout keeps units, unknown values and stale quota distinct', () =
   const metric=value=>({value,observedAt:new Date(now).toISOString()});
   const data={generatedAt:new Date(now).toISOString(),usageSeconds:metric(16320),gameSeconds:metric(4080),energyKWh:metric(.42),aiTokens:metric(842000),quota:{observedAt:new Date(now).toISOString(),fiveHour:{remainingPercent:0,resetsAt:now/1000+3600},weekly:{remainingPercent:46,resetsAt:now/1000+86400}}};
   let v=compact(data,now);assert.equal(v.usageValue,'04:32');assert.equal(v.energyValue,'0.42');assert.equal(v.gameValue,'01:08');assert.equal(v.tokenValue,'842.0K');assert.equal(v.fiveNumber,'0%');assert.equal(v.fiveLabel,'5 小时');assert.equal(v.fiveReset,'1小时0分后重置');
+  v=compact({...data,energyKWh:metric(.004)},now);assert.equal(v.energyValue,'<0.01');assert.equal(v.snapshotStale,false);
+  v=compact(data,now+120000);assert.equal(v.snapshotStale,true);assert.equal(v.snapshotAgeMinutes,2);
   v=compact(data,now+3600001);assert.match(v.fiveLabel,/上次/);assert.equal(v.fiveNumber,'0%');
   v=compact({generatedAt:'invalid'},now);assert.equal(v.usageValue,'—');assert.equal(v.fiveNumber,'—');assert.equal(v.fiveReset,'暂无数据');
 });
