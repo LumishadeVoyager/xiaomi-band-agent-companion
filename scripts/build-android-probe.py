@@ -77,11 +77,13 @@ for entry, label in ([('powerprofile', 'PowerProfile 手环监看（预览）')]
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
 <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+<uses-permission android:name="android.permission.WAKE_LOCK"/>
 <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
 <queries><package android:name="com.mi.health"/><package android:name="com.xiaomi.wearable"/><package android:name="moe.astralsight.astrobox"/></queries>
 <application android:label="{label}" android:allowBackup="false" android:usesCleartextTraffic="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
 <service android:name="io.github.lumishadevoyager.bandagent.BridgeService" android:exported="false" android:foregroundServiceType="connectedDevice"/>
+<service android:name="io.github.lumishadevoyager.bandagent.BridgeRecovery" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true"/>
 <receiver android:name="io.github.lumishadevoyager.bandagent.InstallResultReceiver" android:exported="false"/>
 <receiver android:name="io.github.lumishadevoyager.bandagent.RestartReceiver" android:exported="false"><intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter></receiver>
 <provider android:name="io.github.lumishadevoyager.bandagent.ProbeFileProvider" android:authorities="{package}.probe-files" android:exported="false" android:grantUriPermissions="true"/>

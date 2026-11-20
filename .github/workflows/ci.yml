@@ -69,3 +69,5 @@ jobs:
           java-version: '17'
       - run: curl --fail --location --output "$RUNNER_TEMP/json.jar" https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar
       - run: python scripts/test-update-policy.py --json-jar "$RUNNER_TEMP/json.jar"
+
+      - run: python scripts/test-powerprofile-notifications.py --jdk "$JAVA_HOME" --json-jar "$RUNNER_TEMP/json.jar"

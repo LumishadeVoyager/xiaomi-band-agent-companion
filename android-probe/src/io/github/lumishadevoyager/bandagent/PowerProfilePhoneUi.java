@@ -47,7 +47,7 @@ public final class PowerProfilePhoneUi {
             if(activity.checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED)activity.requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},10);
             else open(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,activity.getPackageName()));
         },false);
-        TextView tip=text("在系统应用设置中允许后台活动和自启动，并将本应用锁定在最近任务。完成后可关闭此页面。",12,muted);tip.setPadding(0,dp(12),0,0);keep.addView(tip);
+        TextView tip=text("在系统应用设置中允许后台活动和自启动，并将本应用锁定在最近任务。完成后可关闭此页面。持续同步会增加耗电；系统强制停止或超级省电仍可能中断连接。",12,muted);tip.setPadding(0,dp(12),0,0);keep.addView(tip);
         LinearLayout updates=card(root,"更新");
         Switch automatic=new Switch(activity);automatic.setText("自动更新预览版");automatic.setTextColor(ink);automatic.setTextSize(14);automatic.setPadding(0,dp(12),0,0);automatic.setChecked(activity.getSharedPreferences("ota",0).getBoolean("autoUpdates",true));automatic.setOnCheckedChangeListener((v,checked)->activity.getSharedPreferences("ota",0).edit().putBoolean("autoUpdates",checked).apply());updates.addView(automatic);
         button(updates,"检查更新",()->action("check"),false);
@@ -74,6 +74,8 @@ public final class PowerProfilePhoneUi {
         power.setText((s.getString("powerTarget","").equals("purifier")?"净化器测试 · ":"")+(s.getBoolean("powerAvailable",false)&&BridgeService.running?"可用":"等待连接"));
         boolean exempt=PhoneStatus.unrestricted(activity),notices=PhoneStatus.notifications(activity);
         battery.setText((exempt?"✓ 电池限制已解除":"待设置：允许忽略电池优化")+"\n"+(notices?"✓ 通知已开启":"待设置：允许通知"));battery.setTextColor(exempt&&notices?mint:muted);
+        android.os.PowerManager pm=activity.getSystemService(android.os.PowerManager.class);
+        battery.append("\n"+(s.getBoolean("cpuLease",false)&&BridgeService.running?"✓ 息屏持续同步已启用":"息屏同步等待启动")+(pm.isPowerSaveMode()?" · 省电模式":"")+"\n执行心跳："+age(s.getLong("healthAt",0))+"\n同步错误："+s.getString("syncError", "") );
         detail.setText(message+"\n更新："+activity.getSharedPreferences("ota",0).getString("lastUpdateStatus","等待自动检查"));
     }
 }

@@ -20,6 +20,10 @@ with tempfile.TemporaryDirectory(prefix='band-agent-policy-') as work:
                     str(root / 'android-probe/src/io/github/lumishadevoyager/bandagent/OtaHttp.java'),
                     str(root / 'android-probe/src/io/github/lumishadevoyager/bandagent/MijiaCloud.java'),
                     str(root / 'test/java/MijiaCloudTest.java'),
+                    str(root / 'android-probe/src/io/github/lumishadevoyager/bandagent/BackgroundLoop.java'),
+                    str(root / 'test/java/BackgroundLoopTest.java'),
                     str(root / 'test/java/SignedFeedTest.java')], check=True)
     subprocess.run([str(java), '-cp', work + os.pathsep + str(args.json_jar), 'SignedFeedTest'], check=True)
     subprocess.run([str(java), '-cp', work + os.pathsep + str(args.json_jar), 'io.github.lumishadevoyager.bandagent.MijiaCloudTest'], check=True)
+
+    subprocess.run([str(java), "-cp", work, "BackgroundLoopTest"], check=True)
