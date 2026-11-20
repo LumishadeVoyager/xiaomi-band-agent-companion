@@ -14,6 +14,14 @@ import org.json.JSONObject;
 /** Shared policy for both independent entries. Authenticates bytes before JSON use. */
 public final class SignedFeed {
     public static final String REPOSITORY = "LumishadeVoyager/xiaomi-band-agent-companion";
+    public static final String OTA_ORIGIN = "https://powerprofile-band-gateway.pages.dev";
+    public static String gatewayArtifact(String value, String kind) throws Exception {
+        artifactUrl(value, kind);
+        URI url = new URI(value);
+        String path = url.getPath().substring(("/" + REPOSITORY).length());
+        if (!path.matches("/releases/download/v[0-9A-Za-z._-]+/band-agent-powerprofile-[0-9A-Za-z._-]+\\.(apk|rpk)")) throw new SecurityException("invalid_gateway_artifact");
+        return OTA_ORIGIN + "/ota" + path;
+    }
     public final JSONObject payload;
     private SignedFeed(JSONObject payload) { this.payload = payload; }
     public static String hex(byte[] bytes) { StringBuilder out = new StringBuilder(); for (byte b : bytes) out.append(String.format(java.util.Locale.ROOT, "%02x", b & 255)); return out.toString(); }
@@ -42,7 +50,7 @@ public final class SignedFeed {
         return new JSONObject(new String(bytes, StandardCharsets.UTF_8));
     }
     public JSONObject component(String entry, String kind, String model, String region, long currentCode, long highestSeen) throws Exception {
-        if (!(entry.equals("codex") || entry.equals("harness")) || !(kind.equals("android") || kind.equals("wearable"))) throw new SecurityException("invalid_component");
+        if (!(entry.equals("codex") || entry.equals("harness") || entry.equals("powerprofile")) || !(kind.equals("android") || kind.equals("wearable"))) throw new SecurityException("invalid_component");
         JSONObject found = null;
         JSONArray components = payload.getJSONArray("components");
         for (int i = 0; i < components.length(); i++) {

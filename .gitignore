@@ -1,5 +1,9 @@
 .research/
 .local/
+.playwright-cli/
+output/playwright/
+.wrangler/
+.dev.vars*
 node_modules/
 target/
 dist/
@@ -16,3 +20,6 @@ __pycache__/
 *.exe
 *.wav
 *.opus
+
+# Audited public OTA binaries/feeds are staged locally before Pages deploy.
+pages-relay/public/ota/

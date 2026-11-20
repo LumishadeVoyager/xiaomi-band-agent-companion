@@ -1,0 +1,101 @@
+<div id="pp-face-preview">
+  <div class="pp-caption">表盘方案与现有应用 · 示例数据 · 非真机截图</div>
+  <div class="viz-carousel viz-dotted-background" aria-label="PowerProfile 表盘与应用预览" data-previous-label="上一个" data-next-label="下一个">
+    <section data-variant="静谧 · 表盘方案" aria-label="静谧表盘设计">
+      <div class="pp-stage"><div class="pp-device"><div class="pp-screen pp-quiet" aria-label="静谧表盘，20点38分，11月18日周三，手环电量62%">
+        <div class="pp-date">11月18日<span>周三</span></div>
+        <div class="pp-hour">20</div><div class="pp-minute">38</div>
+        <div class="pp-rail"><div></div></div>
+        <div class="pp-battery"><i data-lucide="battery-medium" aria-hidden="true"></i><span>手环电量 <b class="pp-battery-value">62%</b></span></div>
+        <div class="pp-wordmark">POWERPROFILE</div>
+      </div></div></div>
+    </section>
+    <section data-variant="刻度 · 表盘方案" aria-label="刻度表盘设计" hidden>
+      <div class="pp-stage"><div class="pp-device"><div class="pp-screen pp-dial" aria-label="刻度表盘，20点38分，11月18日周三，手环电量62%">
+        <div class="pp-dial-marks" aria-hidden="true"></div>
+        <div class="pp-hand pp-hand-hour" aria-hidden="true"></div><div class="pp-hand pp-hand-minute" aria-hidden="true"></div><div class="pp-pin" aria-hidden="true"></div>
+        <div class="pp-digital">20<span>:</span>38</div>
+        <div class="pp-dial-date">11月18日 · 周三</div>
+        <div class="pp-battery"><i data-lucide="battery-medium" aria-hidden="true"></i><span>手环电量 <b class="pp-battery-value">62%</b></span></div>
+        <div class="pp-wordmark">POWERPROFILE</div>
+      </div></div></div>
+    </section>
+    <section data-variant="现有应用 · 页面复现" aria-label="已实现应用的页面代码复现" hidden>
+      <div class="pp-stage"><div class="pp-device"><div class="pp-screen pp-app" aria-label="现有 PowerProfile 应用页面，向下滚动查看示例统计与额度">
+        <div class="pp-app-list">
+          <div class="pp-app-heading"><div>PowerProfile</div><small>2026-11-18 · 手机已同步</small></div>
+          <div class="pp-app-card"><span>今日电脑用时</span><strong>5小时 42分</strong></div>
+          <div class="pp-app-card"><span>今日估算用电</span><strong>0.62 度</strong></div>
+          <div class="pp-app-card"><span>今日游戏</span><strong>1小时 18分</strong></div>
+          <div class="pp-app-card"><span>今日 AI Token</span><strong>12.4M</strong></div>
+          <div class="pp-app-card pp-app-quota"><span>Codex · 5 小时</span><strong>剩余 72%</strong><div class="pp-app-track"><div style="width:72%"></div></div><small>11-18 23:10 重置</small></div>
+          <div class="pp-app-card pp-app-quota"><span>Codex · 本周</span><strong>剩余 46%</strong><div class="pp-app-track"><div style="width:46%"></div></div><small>11-23 08:00 重置</small></div>
+          <div class="pp-app-footer">统计已同步<br>快照 20:38 北京时间<button class="pp-refresh cursor-interaction" type="button">刷新示例</button></div>
+        </div>
+      </div></div></div>
+    </section>
+  </div>
+</div>
+<style>
+#pp-face-preview { font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+#pp-face-preview * { box-sizing:border-box; }
+#pp-face-preview .pp-caption { color:light-dark(#626775,#b8bec9);font-size:12px;text-align:center;margin-bottom:14px; }
+#pp-face-preview .pp-stage { height:524px;display:flex;justify-content:center;align-items:center;padding:10px 4px; }
+#pp-face-preview .pp-device { width:360px;max-width:100%;padding:11px;background:#25282b;border:1px solid #45494b;border-radius:68px;box-shadow:0 12px 36px #00000026; }
+#pp-face-preview .pp-screen { container-type:inline-size;position:relative;width:100%;aspect-ratio:7/10;overflow:hidden;border-radius:56px;background:#000;color:#f2f0e9;--pp-accent:#c8f080; }
+#pp-face-preview .pp-date { position:absolute;top:9%;left:10%;font-size:5.35cqw;letter-spacing:.04em;display:flex;gap:16px;align-items:center;font-weight:500; }
+#pp-face-preview .pp-date span { color:#90948e;font-size:4.75cqw; }
+#pp-face-preview .pp-hour,#pp-face-preview .pp-minute { position:absolute;left:7.8%;font-family:"Arial","Segoe UI",sans-serif;font-size:46cqw;line-height:.9;font-weight:700;letter-spacing:-.065em;font-variant-numeric:tabular-nums; }
+#pp-face-preview .pp-hour { top:20%; }#pp-face-preview .pp-minute { top:47%;color:var(--pp-accent); }
+#pp-face-preview .pp-rail { position:absolute;right:10%;top:22%;width:5px;height:46%;border-radius:4px;background:#252820;overflow:hidden; }
+#pp-face-preview .pp-rail div { width:100%;height:62%;background:var(--pp-accent);border-radius:4px; }
+#pp-face-preview .pp-battery { position:absolute;top:83%;left:0;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;color:#989c94;font-size:4.15cqw; }
+#pp-face-preview .pp-battery i,#pp-face-preview .pp-battery svg { width:21px;height:21px;color:var(--pp-accent); }
+#pp-face-preview .pp-battery b { color:#e7e9e0;font-weight:500;margin-left:4px; }
+#pp-face-preview .pp-wordmark { position:absolute;bottom:5.5%;width:100%;text-align:center;color:#60645e;font-size:2.8cqw;letter-spacing:.27em; }
+#pp-face-preview .pp-dial-marks { position:absolute;left:17%;top:6%;width:66%;aspect-ratio:1; }
+#pp-face-preview .pp-tick { position:absolute;left:calc(50% - 1px);top:0;width:2px;height:9px;border-radius:2px;background:#404641;transform-origin:1px 33cqw;transform:rotate(var(--angle)); }
+#pp-face-preview .pp-tick:nth-child(5n+1) { background:#d3d9cf;height:17px;width:3px; }
+#pp-face-preview .pp-hand { position:absolute;left:calc(50% - 4px);bottom:70.9%;width:8px;border-radius:5px;transform-origin:center bottom; }
+#pp-face-preview .pp-hand-hour { height:13%;background:#ecefe4;transform:rotate(259deg); }
+#pp-face-preview .pp-hand-minute { height:20%;background:var(--pp-accent);transform:rotate(228deg);width:5px;left:calc(50% - 2.5px); }
+#pp-face-preview .pp-pin { position:absolute;top:calc(29.1% - 6px);left:calc(50% - 6px);width:12px;height:12px;border-radius:50%;background:#edf1e7; }
+#pp-face-preview .pp-digital { position:absolute;top:58%;width:100%;font-family:Arial,sans-serif;font-size:19cqw;font-weight:700;letter-spacing:-.045em;text-align:center; }
+#pp-face-preview .pp-digital span { color:var(--pp-accent);padding:0 2px; }
+#pp-face-preview .pp-dial-date { position:absolute;top:75%;width:100%;text-align:center;font-size:5cqw;color:#b1b6ae; }
+#pp-face-preview .pp-dial .pp-battery { top:85%; }
+#pp-face-preview .pp-app { color:#fff;border-radius:56px; }
+#pp-face-preview .pp-app-list { width:100%;height:100%;position:absolute;inset:0;overflow-y:auto;padding:0 18px;scrollbar-width:none; }
+#pp-face-preview .pp-app-list::-webkit-scrollbar { display:none; }
+#pp-face-preview .pp-app-heading { height:92px;padding:18px 0 0 8px;font-size:28px;font-weight:700; }
+#pp-face-preview .pp-app-heading small { display:block;font-size:16px;color:#999;margin-top:6px;font-weight:400; }
+#pp-face-preview .pp-app-card { height:112px;background:#191919;border-radius:26px;margin-bottom:10px;padding:18px; }
+#pp-face-preview .pp-app-card span { color:#65aaff;font-size:20px;display:block; }
+#pp-face-preview .pp-app-card:nth-child(3) span { color:#92dc5d; }#pp-face-preview .pp-app-card:nth-child(4) span { color:#ffb357; }#pp-face-preview .pp-app-card:nth-child(5) span,#pp-face-preview .pp-app-card:nth-child(7) span { color:#c09bff; }
+#pp-face-preview .pp-app-card strong { display:block;font-size:32px;margin-top:7px;line-height:1.2; }
+#pp-face-preview .pp-app-quota { height:166px; }
+#pp-face-preview .pp-app-track { height:8px;background:#333;border-radius:4px;margin-top:10px;overflow:hidden; }#pp-face-preview .pp-app-track div { height:100%;background:#65aaff; }#pp-face-preview .pp-app-card:nth-child(7) .pp-app-track div { background:#c09bff; }
+#pp-face-preview .pp-app-quota small { color:#999;font-size:16px;display:block;margin-top:6px; }
+#pp-face-preview .pp-app-footer { padding:8px;color:#999;font-size:16px;line-height:1.7; }
+#pp-face-preview .pp-refresh { display:block;width:100%;height:48px;margin-top:12px;border:0;border-radius:24px;color:#fff;background:#252525;font:22px "Segoe UI",sans-serif; }
+@media(max-width:380px) {
+  #pp-face-preview .pp-stage { height:465px; }#pp-face-preview .pp-device { width:314px;border-radius:60px; }#pp-face-preview .pp-screen { border-radius:48px; }
+  #pp-face-preview .pp-app-list { padding:0 5.35cqw; }#pp-face-preview .pp-app-heading { height:27.38cqw;padding:5.35cqw 0 0 2.38cqw;font-size:8.33cqw; }
+  #pp-face-preview .pp-app-heading small,#pp-face-preview .pp-app-quota small,#pp-face-preview .pp-app-footer { font-size:4.76cqw; }
+  #pp-face-preview .pp-app-card { height:33.33cqw;border-radius:7.73cqw;padding:5.35cqw;margin-bottom:2.97cqw; }
+  #pp-face-preview .pp-app-card span { font-size:5.95cqw; }#pp-face-preview .pp-app-card strong { font-size:9.52cqw;margin-top:2.08cqw; }
+  #pp-face-preview .pp-app-quota { height:49.4cqw; }
+}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('pp-face-preview');
+  const marks = root.querySelector('.pp-dial-marks');
+  for (let i = 0; i < 60; i++) { const tick = document.createElement('span'); tick.className = 'pp-tick'; tick.style.setProperty('--angle', (i * 6) + 'deg'); marks.appendChild(tick); }
+  root.querySelector('.pp-refresh').addEventListener('click', event => { event.currentTarget.textContent = '示例已刷新'; root.querySelector('.pp-app-heading small').textContent = '2026-11-18 · 示例已刷新'; });
+  const state = { accent: '#c8f080', battery: 62 };
+  const render = () => { root.querySelectorAll('.pp-screen').forEach(screen => screen.style.setProperty('--pp-accent', state.accent)); root.querySelectorAll('.pp-battery-value').forEach(value => value.textContent = state.battery + '%'); root.querySelectorAll('.pp-quiet,.pp-dial').forEach(screen => screen.setAttribute('aria-label', screen.getAttribute('aria-label').replace(/电量\d+%/, '电量' + state.battery + '%'))); root.querySelector('.pp-rail div').style.height = state.battery + '%'; };
+  render();
+  if (globalThis.Tweak) { const tweak = new Tweak({ container: root, onChange: render }); tweak.addColorPicker(state, 'accent', { label: '表盘强调色' }); tweak.addSlider(state, 'battery', { label: '模拟手环电量', min: 0, max: 100, step: 1, unit: '%' }); }
+})();
+</script>

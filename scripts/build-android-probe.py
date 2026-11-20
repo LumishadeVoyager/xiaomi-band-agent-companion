@@ -17,6 +17,7 @@ parser.add_argument('--build-tools', type=Path, required=True)
 parser.add_argument('--wearable-aar', type=Path, required=True, help='Official SDK AAR, never committed')
 parser.add_argument('--openssl', type=Path, default=Path(r'C:\Program Files\Git\usr\bin\openssl.exe'))
 parser.add_argument('--development-usb', action='store_true', help='PRIVATE builds only: embed the local USB audio token; never publish these APKs')
+parser.add_argument('--powerprofile', action='store_true', help='Build only the independent read-only PowerProfile companion')
 args = parser.parse_args()
 work_root = Path(os.environ.get('LOCALAPPDATA', ROOT / '.local')) / 'BandAgentDev' / 'android-build'
 
@@ -50,7 +51,7 @@ version_code = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['
 update_public = ROOT / 'updates/trust-root.pem'
 if not update_public.is_file():
     raise SystemExit('Run node scripts/init-update-signing.cjs first; update root must stay pinned')
-for entry, label in [('codex', 'Codex 伴侣（预览）'), ('harness', 'Harness 伴侣（预览）')]:
+for entry, label in ([('powerprofile', 'PowerProfile 手环监看（预览）')] if args.powerprofile else [('codex', 'Codex 伴侣（预览）'), ('harness', 'Harness 伴侣（预览）')]):
     work = work_root / entry
     classes, dex, assets = work / 'classes', work / 'dex', work / 'assets'
     for directory in [classes, dex, assets]:
@@ -67,17 +68,22 @@ for entry, label in [('codex', 'Codex 伴侣（预览）'), ('harness', 'Harness
     manifest = work / 'AndroidManifest.xml'
     manifest.write_text(f'''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package}" android:versionCode="{version_code}" android:versionName="{version}">
 <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35"/>
+<uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
 <uses-permission android:name="android.permission.INTERNET"/>
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
 <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+<uses-permission android:name="android.permission.WAKE_LOCK"/>
 <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
 <queries><package android:name="com.mi.health"/><package android:name="com.xiaomi.wearable"/><package android:name="moe.astralsight.astrobox"/></queries>
 <application android:label="{label}" android:allowBackup="false" android:usesCleartextTraffic="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
 <service android:name="io.github.lumishadevoyager.bandagent.BridgeService" android:exported="false" android:foregroundServiceType="connectedDevice"/>
+<service android:name="io.github.lumishadevoyager.bandagent.BridgeRecovery" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true"/>
 <receiver android:name="io.github.lumishadevoyager.bandagent.InstallResultReceiver" android:exported="false"/>
 <receiver android:name="io.github.lumishadevoyager.bandagent.RestartReceiver" android:exported="false"><intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter></receiver>
 <provider android:name="io.github.lumishadevoyager.bandagent.ProbeFileProvider" android:authorities="{package}.probe-files" android:exported="false" android:grantUriPermissions="true"/>

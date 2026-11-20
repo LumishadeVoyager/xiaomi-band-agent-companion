@@ -29,7 +29,9 @@ import org.json.JSONObject;
 
 /** Development-only bridge: no phone microphone, cloud calls, or Agent execution. */
 public final class BridgeActivity extends Activity {
+    public static volatile boolean visible;
     private TextView status;
+    private PowerProfilePhoneUi phoneUi;
     private Node node;
     private boolean registered;
     private String entry;
@@ -48,22 +50,36 @@ public final class BridgeActivity extends Activity {
             token = config.getString("token");
             development = config.optBoolean("development", false);
         } catch (Exception error) { throw new IllegalStateException("Missing development configuration", error); }
+        if (entry.equals("powerprofile")) {
+            getWindow().setStatusBarColor(android.graphics.Color.rgb(10,14,20));getWindow().setNavigationBarColor(android.graphics.Color.rgb(10,14,20));
+            phoneUi=new PowerProfilePhoneUi(this);setContentView(phoneUi.create(this::connect,this::launchWearApp,this::installWearApp));
+            // Cloud sync and control start even when the band is not nearby.
+            try{startForegroundService(new Intent(this,BridgeService.class));}catch(RuntimeException ignored){phoneUi.note("后台服务启动失败，请检查应用权限");}
+        } else {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(48, 80, 48, 48);
         status = new TextView(this); status.setTextSize(20);
+        if (entry.equals("powerprofile")) { status.setMinLines(4); status.setMaxLines(4); status.setEllipsize(android.text.TextUtils.TruncateAt.END); }
         layout.addView(status);
         button(layout, "连接手环并授权", this::connect);
         button(layout, "打开对应手环应用", this::launchWearApp);
         button(layout, "用 AstroBox 安装对应测试包", this::installWearApp);
         button(layout, "检查并安装更新", () -> startForegroundService(new Intent(this, BridgeService.class).setAction("check")));
+        if (entry.equals("powerprofile")) {
+            button(layout, "配置手环更新安装通路", () -> startForegroundService(new Intent(this, BridgeService.class).setAction("installer_setup")));
+            button(layout, "通知设置", () -> startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())));
+            button(layout, "10 秒后发送测试提醒", () -> { startForegroundService(new Intent(this, BridgeService.class).setAction("powerprofile_test_notice")); show("10 秒后发送明确标记的测试通知；如运动健康仅锁屏通知，请锁屏并佩戴手环"); });
+            TextView hint = new TextView(this); hint.setText("在小米运动健康的 App 通知中启用本应用；手环震动受系统勿扰设置控制。监看每 15 秒同步，额度每分钟读取。后台每 15 分钟检查预览更新；手机安装可能需要系统确认。"); layout.addView(hint);
+        }
         button(layout, "打开 AstroBox（首次允许安装通路）", () -> { Intent launch = getPackageManager().getLaunchIntentForPackage("moe.astralsight.astrobox"); if (launch != null) startActivity(launch); });
         button(layout, "允许本应用更新手机安装包", () -> startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))));
         CheckBox automatic = new CheckBox(this); automatic.setText("自动更新 · preview 测试通道"); automatic.setChecked(getSharedPreferences("ota", 0).getBoolean("autoUpdates", true));
         automatic.setOnCheckedChangeListener((button, checked) -> getSharedPreferences("ota", 0).edit().putBoolean("autoUpdates", checked).apply()); layout.addView(automatic);
         setContentView(layout);
+        }
         registerReceiver(statusReceiver, new IntentFilter(getPackageName() + ".STATUS"), Context.RECEIVER_NOT_EXPORTED);
-        show((entry.equals("codex") ? "Codex" : "DeepSeek Harness") + " 开发预览\n" + getSharedPreferences("ota", 0).getString("lastStatus", "尚未接入 Agent 执行"));
+        show((entry.equals("powerprofile") ? "PowerProfile" : entry.equals("codex") ? "Codex" : "DeepSeek Harness") + " 开发预览\n" + getSharedPreferences("ota", 0).getString("lastStatus", "等待连接与配对"));
         if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, 10);
         connect();
         acceptDevelopmentIntent(getIntent());
@@ -72,7 +88,9 @@ public final class BridgeActivity extends Activity {
     private void button(LinearLayout layout, String title, Runnable action) {
         Button button = new Button(this); button.setText(title); button.setOnClickListener(v -> action.run()); layout.addView(button);
     }
-    private void show(String text) { runOnUiThread(() -> status.setText(text)); }
+    private void show(String text) { runOnUiThread(() -> {if(phoneUi!=null)phoneUi.note(text);else status.setText(text);}); }
+    @Override protected void onResume(){super.onResume();visible=true;if(phoneUi!=null)phoneUi.start();}
+    @Override protected void onPause(){visible=false;if(phoneUi!=null)phoneUi.stop();super.onPause();}
     private void connect() {
         Wearable.getNodeApi(this).getConnectedNodes().addOnSuccessListener(nodes -> {
             if (nodes.isEmpty()) { show("小米运动健康未返回已连接设备"); return; }
@@ -108,7 +126,7 @@ public final class BridgeActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); acceptDevelopmentIntent(intent); acceptComputerPairing(intent); }
     private void acceptComputerPairing(Intent intent) {
         String encoded = intent.getStringExtra("signed_pairing_b64"); if (encoded == null || encoded.length() > 8192) return;
-        try { new ComputerLink(this).pair(Base64.decode(encoded, Base64.DEFAULT)); startForegroundService(new Intent(this, BridgeService.class).setAction("reload_link")); show("电脑签名配对已保存，日志与音频将自动上传"); }
+        try { ComputerLink link = new ComputerLink(this); link.pair(Base64.decode(encoded, Base64.DEFAULT)); startForegroundService(new Intent(this, BridgeService.class).setAction("reload_link")); show(entry.equals("powerprofile") ? (link.internet() ? "互联网配对已保存，可使用移动数据同步" : "电脑签名配对已保存，开始读取统计") : "电脑签名配对已保存，日志与音频将自动上传"); }
         catch (Exception error) { show("电脑配对未通过校验：" + error.getClass().getSimpleName()); }
     }
     private void acceptDevelopmentIntent(Intent intent) {

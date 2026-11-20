@@ -3,7 +3,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const endpoint = process.argv[2], entry = process.argv[3];
-if (!/^https:\/\/[^/?#]+:\d+$/.test(endpoint || '') || !['codex', 'harness'].includes(entry)) throw new Error('Usage: node scripts/create-computer-pairing.cjs https://HOST:8790 codex|harness');
+if (!/^https:\/\/[^/?#]+:\d+$/.test(endpoint || '') || !['codex', 'harness', 'powerprofile'].includes(entry)) throw new Error('Usage: node scripts/create-computer-pairing.cjs https://HOST:PORT codex|harness|powerprofile');
 const runtime = process.env.BAND_AGENT_RUNTIME || path.join(process.env.LOCALAPPDATA || path.join(root, '.local'), 'BandAgentDev', 'runtime');
 const cert = new crypto.X509Certificate(fs.readFileSync(path.join(runtime, 'tls-cert.pem')));
 const now = Math.floor(Date.now() / 1000);

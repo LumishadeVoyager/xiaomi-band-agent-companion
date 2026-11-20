@@ -1,0 +1,73 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { spawn, spawnSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const root = path.dirname(project), outside = process.env.POWERPROFILE_RELAY_TOOLS;
+const deps = outside || project, work = outside ? path.join(outside,'work') : project;
+const PC_TOKEN='a'.repeat(64), PHONE_TOKEN='b'.repeat(64);
+const child = spawn(process.execPath, [path.join(deps,'node_modules/wrangler/bin/wrangler.js'),'dev','--port','18800','--ip','127.0.0.1'], { cwd:work, windowsHide:true, env:{...process.env, PC_TOKEN, PHONE_TOKEN, CHANNEL_ID:crypto.randomBytes(16).toString('hex'), WRANGLER_SEND_METRICS:'false'}, stdio:['ignore','pipe','pipe'] });
+let output=''; child.stdout.on('data',b=>output+=b); child.stderr.on('data',b=>output+=b);
+const base='http://127.0.0.1:18800';
+const gatewayBase='http://127.0.0.1:18801'; let gatewayChild;
+async function post(route,token,body){return fetch((route.startsWith('/powerprofile/')?gatewayBase:base)+route,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});}
+const identity={protocol:1,entryId:'powerprofile'};
+try {
+  let ready=false;
+  for(let i=0;i<80;i++){if(child.exitCode!==null)throw Error('local_worker_exited');try{if((await fetch(base+'/health')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,250));}
+  if(!ready)throw Error('local_worker_not_ready');
+  const gatewayWork=outside?path.join(outside,'gateway-work'):path.join(root,'pages-relay');
+  gatewayChild=spawn(process.execPath,[path.join(deps,'node_modules/wrangler/bin/wrangler.js'),'pages','dev','public','--port','18801','--ip','127.0.0.1'],{cwd:gatewayWork,windowsHide:true,env:{...process.env,WRANGLER_SEND_METRICS:'false'},stdio:['ignore','pipe','pipe']});
+  gatewayChild.stdout.on('data',b=>output+=b);gatewayChild.stderr.on('data',b=>output+=b);
+  ready=false;
+  for(let i=0;i<80;i++){if(gatewayChild.exitCode!==null)throw Error('local_gateway_exited');try{if((await fetch(gatewayBase+'/health')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,250));}
+  if(!ready)throw Error('local_gateway_not_ready');
+  assert.equal((await fetch(gatewayBase+'/relay/publish',{method:'POST'})).status,401);
+  assert.equal((await fetch(gatewayBase+'/snapshot.json')).status,404);
+  assert.equal((await post('/powerprofile/poll',PC_TOKEN,identity)).status,401);
+  assert.equal((await post('/relay/publish',PHONE_TOKEN,identity)).status,401);
+  assert.equal((await post('/powerprofile/poll',PHONE_TOKEN,identity)).status,503);
+  const now=new Date().toISOString(), metric={value:1,observedAt:now,source:'private-path',account:'private-account'};
+  const snapshot={...identity,type:'powerprofile_snapshot',day:'2026-11-18',generatedAt:now,usageSeconds:metric,energyKWh:metric,gameSeconds:metric,aiTokens:metric,quota:null};
+  const event={id:'c'.repeat(64),at:now,text:'private-transcript'};
+  assert.equal((await fetch(gatewayBase+'/relay/publish',{method:'POST',headers:{Authorization:'Bearer '+PHONE_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({...identity,snapshot,events:[event]})})).status,401);
+  assert.equal((await fetch(gatewayBase+'/relay/publish',{method:'POST',headers:{Authorization:'Bearer '+PC_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({...identity,snapshot,events:[event]})})).status,200);
+  assert.equal((await post('/relay/publish',PC_TOKEN,{...identity,snapshot,events:[event]})).status,200);
+  assert.equal((await post('/relay/publish',PC_TOKEN,{...identity,snapshot,events:[event]})).status,200);
+  let poll=await (await post('/powerprofile/poll',PHONE_TOKEN,identity)).json();
+  assert.equal(poll.events.length,1);assert.equal(poll.relay.sourceOnline,true);assert.equal(JSON.stringify(poll).includes('private-'),false);
+  assert.equal((await post('/powerprofile/device-report',PHONE_TOKEN,{...identity,snapshotAt:now,versionCode:8})).status,200);
+  assert.equal((await post('/powerprofile/ack',PHONE_TOKEN,{...identity,ids:[event.id]})).status,200);
+  const pc=await (await post('/relay/publish',PC_TOKEN,{...identity,snapshot,events:[event]})).json();
+  assert.deepEqual(pc.ackedIds,[event.id]);assert.equal(pc.report.versionCode,8);assert.equal(pc.report.transport,'internet');
+  poll=await (await post('/powerprofile/poll',PHONE_TOKEN,identity)).json();assert.equal(poll.events.length,0);
+  const old={...snapshot,generatedAt:new Date(Date.parse(now)-1000).toISOString()};
+  await post('/relay/publish',PC_TOKEN,{...identity,snapshot:old,events:[]});
+  poll=await (await post('/powerprofile/poll',PHONE_TOKEN,identity)).json();assert.equal(poll.snapshot.generatedAt,now);
+  assert.equal((await post('/relay/publish',PC_TOKEN,{...identity,snapshot,events:[{...event,id:'bad'}]})).status,400);
+  const seal={nonce:'a'.repeat(16),ciphertext:'b'.repeat(200)};
+  assert.equal((await post('/relay/mijia-config',PHONE_TOKEN,{...identity,config:seal})).status,401);
+  assert.equal((await post('/powerprofile/mijia-config',PC_TOKEN,identity)).status,401);
+  assert.equal((await post('/relay/mijia-config',PC_TOKEN,{...identity,config:{...seal,password:'DROP'}})).status,200);
+  assert.deepEqual((await (await post('/powerprofile/mijia-config',PHONE_TOKEN,identity)).json()).config,seal);
+  const report={...identity,target:'purifier',phase:'restored',revision:1,value:true,testId:'fixture',phoneVersion:14,account:'DROP'};
+  assert.equal((await post('/powerprofile/mijia-report',PHONE_TOKEN,report)).status,200);
+  await post('/powerprofile/mijia-report',PHONE_TOKEN,{...report,phase:'ready'});
+  const receipt=await (await post('/relay/mijia-report',PC_TOKEN,identity)).json();
+  assert.equal(receipt.report.lastTest.phase,'restored');assert.equal(JSON.stringify(receipt).includes('DROP'),false);
+  assert.equal((await post('/powerprofile/mijia-report',PHONE_TOKEN,{...report,target:'arbitrary-device'})).status,400);
+  console.log('Mijia sealed pairing and phone receipt: role separation, opaque storage and test receipt retention passed.');
+  const health={...identity,session:'d'.repeat(32),phoneVersion:15,startedAt:Date.now(),uptimeSeconds:60,lastSyncAt:Date.now(),lastWearAt:0,wearConnected:false,batteryUnrestricted:true,notificationsAllowed:true,deviceId:'DROP',activityVisible:false,screenOn:false,powerSave:true,deviceIdle:false,healthAt:Date.now(),syncAttemptAt:Date.now(),lastSendAttemptAt:0,lastSendFailureAt:0};
+  assert.equal((await post('/powerprofile/phone-report',PC_TOKEN,health)).status,401);
+  assert.equal((await post('/powerprofile/phone-report',PHONE_TOKEN,health)).status,200);
+  assert.equal((await post('/relay/phone-report',PHONE_TOKEN,identity)).status,401);
+  const runtime=await (await post('/relay/phone-report',PC_TOKEN,identity)).json();assert.equal(runtime.report.activityVisible,false);assert.equal(runtime.report.powerSave,true);assert.equal(typeof runtime.report.healthAt,"number");assert.equal(runtime.report.uptimeSeconds,60);assert.equal(runtime.report.wearConnected,false);assert.equal(JSON.stringify(runtime).includes('DROP'),false);
+  assert.equal((await post('/powerprofile/phone-report',PHONE_TOKEN,{...health,lastSyncAt:-1})).status,400);
+  assert.equal((await post('/powerprofile/phone-report',PHONE_TOKEN,{...health,powerSave:'true'})).status,400);
+  assert.equal((await post('/powerprofile/phone-report',PHONE_TOKEN,{...health,healthAt:Date.now()+600000})).status,400);
+  console.log('Phone runtime receipts: reconnect-state, battery status, role separation and private field filtering passed.');
+  console.log('Workers + Pages runtime integration passed: bound gateway, roles, privacy, persistence, duplicate upload, device receipt, phone ACK and stale ordering.');
+} catch(error) { console.error(error); console.error(output.slice(-5000)); process.exitCode=1; }
+finally { for(const processChild of [gatewayChild,child].filter(Boolean)){if(process.platform==='win32')spawnSync('taskkill',['/PID',String(processChild.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});else processChild.kill('SIGTERM');} }

@@ -1,5 +1,17 @@
 # 并行工作线与进度
 
+## 2026-11-18：当前开发方向
+
+用户暂停语音 Agent，转向独立 PowerProfile 手环监看。当前工作见 [#23](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/23) 与 [规格/验收](./POWERPROFILE.md)。阶段一为只读数据适配、原生风格 RPK、手机同步和 Codex 完成通知；阶段二为真机显示、手机锁屏、通知中心震动验收。历史语音/双后端/OTA 未完成项保留历史状态，不作为新监看首版前提，也不宣称已完成。
+
+同日新增表盘：采用“基础原生表盘 + 详情应用 + 系统通知”，表盘必须有时间、日期、手环电量；其他统计可不在表盘显示。[路线与 G0–G6 验收](./POWERPROFILE_WATCHFACE.md) 已补充，当前仅设计预览，尚无 PowerProfile 原生表盘安装包。
+
+同日真机进展：应用 versionCode 8 已有真实快照回执；用户确认数据、Token、双窗口额度及滚动排版正常。停止 AstroBox、手机短时息屏后仍收到新快照。手机 versionCode 9 的测试通知已由用户确认送达手环并震动。真实 Codex 完成整条链路、长时后台、重连和原生表盘分别继续验收，详见 [真机验收记录](./POWERPROFILE_DEVICE_ACCEPTANCE.md)。
+
+同日新增互联网要求：电脑→手机走互联网，手机→手环允许蓝牙。默认 workers.dev 超时后改用免费 Pages Function + 内部服务绑定/SQLite Durable Object。手机 v11 关闭 Wi-Fi，使用移动数据并实际拔除 USB 后仍收到手环 v8 新回执；用户确认数据显示正常，23:33:16 确认诊断通知重试送达且震动。两端均使用新 HTTPS 入口，无自购域名。真实 Codex 完成链路、长时运行及重连另验。见 [中继部署与限制](../cloud-relay/README.md) 与 [免费入口](../pages-relay/README.md)。
+
+以下为方向变更前的历史工作线。
+
 当前进入开发探针阶段；尚无完整 Agent 客户端。GitHub Issues/PR 是逐项进度来源。
 
 任务索引：[#1 公开开发基线](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/1)、[#2 音频与转写](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/2)、[#3 双 RPK 身份](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/3)、[#4 Codex](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/4)、[#5 Harness](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/5)、[#6 OTA](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/6)、[#7 Claude Code](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/7)、[#8 手机飞书](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/8)、[#9 多型号](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/9)、[#10 共享协议](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/10)、[#11 额度与偏好](https://github.com/LumishadeVoyager/xiaomi-band-agent-companion/issues/11)。

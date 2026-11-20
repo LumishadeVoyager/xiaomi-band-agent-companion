@@ -1,0 +1,103 @@
+<template>
+  <div class="page">
+    <list class="list">
+      <list-item type="header" class="heading"><div class="brand"><image class="logo" src="/common/logo.png" /><text class="title">Power</text></div><div class="head-meta"><text class="date">{{dateLabel}}</text><text class="status">{{status}}</text></div></list-item>
+      <list-item type="usage" class="hero"><image class="hero-icon" src="/common/icons/monitor.png" /><div class="hero-data"><text class="label">{{computerLabel}}</text><div class="baseline"><text class="hero-value">{{usageValue}}</text></div></div><div class="power-touch" onclick="togglePower"><div class="{{powerClass}}"><image class="power-icon" src="{{powerIcon}}" /></div></div></list-item>
+      <list-item type="metrics" class="pair"><div class="tile left"><div class="tile-label"><image class="small-icon" src="/common/icons/energy.png" /><text class="label">估算用电</text></div><div class="baseline"><text class="tile-value">{{energyValue}}</text><text class="unit">kWh</text></div></div><div class="tile"><div class="tile-label"><image class="small-icon" src="/common/icons/game.png" /><text class="label">游戏</text></div><div class="baseline"><text class="tile-value">{{gameValue}}</text></div></div></list-item>
+      <list-item type="ai" class="token-row"><div class="tile-label"><image class="token-icon" src="/common/icons/ai.png" /><text class="label">AI Token</text></div><text class="token-value">{{tokenValue}}</text></list-item>
+      <list-item type="quota" class="quota"><text class="quota-title">Codex · 剩余</text><div class="quota-pair"><div class="quota-cell left"><text class="quota-label">{{fiveLabel}}</text><text class="quota-value">{{fiveNumber}}</text><progress class="bar" percent="{{fiveProgress}}" /><text class="reset">{{fiveReset}}</text></div><div class="quota-cell"><text class="quota-label">{{weekLabel}}</text><text class="quota-value">{{weekNumber}}</text><progress class="bar week-bar" percent="{{weekProgress}}" /><text class="reset">{{weekReset}}</text></div></div></list-item>
+      <list-item type="actions" class="footer"><div class="action-row"><div class="action left" onclick="manualRefresh"><image class="action-icon" src="/common/icons/refresh.png" /><text class="action-label">同步</text></div><div class="action" onclick="checkUpdate"><image class="action-icon" src="/common/icons/update.png" /><text class="action-label">更新</text></div></div><text class="foot-note">{{syncedAt}} · {{updateText}}</text></list-item>
+    </list>
+  </div>
+</template>
+<script>
+import view from '../../common/powerprofile-view.cjs'
+import entry from '../../common/entry.json'
+export default {
+  private: { snapshotStale: true, snapshotAgeMinutes: 0, pendingPowerId: '', pendingPowerAt: 0, powerTimeout: null, computerLabel: '电脑', power: null, powerAt: 0, powerClass: 'power-button power-unknown', powerIcon: '/common/icons/power-off.png', dateLabel: '今日', usageValue: '—', energyValue: '—', gameValue: '—', tokenValue: '—', fiveNumber: '—', weekNumber: '—', fiveLabel: '5 小时', weekLabel: '本周', partialStale: true, updateText: 'v' + entry.versionCode, day: '今日', status: '等待手机', usage: '未统计', energy: '未统计', game: '未统计', tokens: '未统计', five: '未知', fiveProgress: 0, fiveReset: '等待额度数据', week: '未知', weekProgress: 0, weekReset: '等待额度数据', freshness: '等待电脑统计', syncedAt: '—', connection: null, last: null, timer: null, alive: true },
+  onInit() {
+    this.alive = true;
+    try { require('@system.storage').get({ key: 'powerprofile.snapshot.v1', success: (raw) => { try { if (!this.last && this.alive) { this.render(JSON.parse(raw)); this.status = '缓存'; } } catch (error) {} } }); } catch (error) {}
+    try {
+      this.connection = require('@system.interconnect').instance();
+      this.connection.onmessage = (event) => {
+        try {
+          var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (!this.alive || data.protocol !== 1 || data.entryId !== 'powerprofile') return;
+          if (data.type === 'ota_status') { if (['checking','available','current','downloading','installing','verified','failed','unknown','installer_setup','phone_confirmation','phone_submitted','no_release'].indexOf(data.phase) >= 0) this.updateText = 'v' + entry.versionCode + ' · ' + this.updateLabel(data.phase, data.progress); return; }
+          if (data.type === 'powerprofile_power_rejected') { if (data.commandId === this.pendingPowerId) this.finishPower(false); return; }
+          if (data.type === 'powerprofile_power_state') { this.applyPower(data); return; }
+          if (data.type !== 'powerprofile_snapshot') return;
+          if (this.last && Date.parse(data.generatedAt) < Date.parse(this.last.generatedAt)) return;
+          this.render(data); if (!this.pendingPowerId) this.status = this.snapshotStale ? '缓存 · '+this.snapshotAgeMinutes+'分钟前' : this.partialStale ? '含旧值' : '已同步';
+          require('@system.storage').set({ key: 'powerprofile.snapshot.v1', value: JSON.stringify(data) });
+          this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_snapshot_applied', snapshotAt: data.generatedAt, versionCode: entry.versionCode }, success: function () {}, fail: function () {} });
+        } catch (error) { this.status = '待重试'; }
+      };
+      this.timer = setInterval(() => { if (this.last) this.render(this.last); this.refresh(); }, 60000);
+      this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_hello', versionCode: entry.versionCode }, success: function () {}, fail: function () {} });
+      this.refresh();
+    } catch (error) { this.status = '未连接'; }
+  },
+  onShow() { this.refresh(); },
+  haptic(mode) { try { require('@system.vibrator').vibrate({ mode: mode || 'short' }); } catch (error) {} },
+  finishPower(ok) {
+    if (!this.pendingPowerId) return;
+    this.pendingPowerId = ''; if (this.powerTimeout) { clearTimeout(this.powerTimeout); this.powerTimeout = null; }
+    this.status = ok ? (this.power && this.power.value ? '已通电' : '已断电') : '操作未确认';
+    this.haptic(ok ? 'short' : 'long');
+    if (!ok) { this.powerClass = 'power-button power-error'; this.powerIcon = '/common/icons/power-off.png'; }
+  },
+  applyPower(data) {
+    if (this.pendingPowerId && data.commandId !== this.pendingPowerId && data.available && Date.now() - this.pendingPowerAt > 45000) this.finishPower(false);
+    var matches = this.pendingPowerId && data.commandId === this.pendingPowerId;
+    // Unrelated periodic reads cannot unlock a command that is still in flight.
+    if (this.pendingPowerId && (!matches || ['confirmed', 'failed'].indexOf(data.commandPhase) < 0)) { this.status = matches ? '切换中' : '等待手机'; return; }
+    this.power = data; this.powerAt = Date.now();
+    this.computerLabel = data.target === 'purifier' ? '净化器测试' : data.value === false ? '电脑 · 已断电' : data.computerStatus === 'unknown' ? '电脑 · 待同步' : data.computerStatus === 'online' ? '电脑 · 在线' : data.computerStatus === 'starting' ? '电脑 · 待上线' : '电脑 · 未上线';
+    this.powerClass = data.available ? (data.value === true ? 'power-button power-on' : 'power-button') : 'power-button power-unknown';
+    this.powerIcon = data.value === true ? '/common/icons/power-on.png' : '/common/icons/power-off.png';
+    if (matches) this.finishPower(data.commandPhase === 'confirmed');
+    if (!this.pendingPowerId && data.target === 'computer' && data.value === true && ['online','unknown'].indexOf(data.computerStatus)<0) this.status = data.computerStatus === 'starting' ? '已通电 · 待上线' : '已通电 · 未上线';
+  },
+  togglePower() {
+    if (this.pendingPowerId) { this.status = '切换中'; return; }
+    if (!this.connection || !this.power || !this.power.available || Date.now() - this.powerAt > 45000 || typeof this.power.value !== 'boolean') { this.status = '读取供电状态'; this.refresh(); return; }
+    var id = ''; for (var i = 0; i < 32; i++) id += Math.floor(Math.random()*16).toString(16);
+    this.pendingPowerId = id; this.pendingPowerAt = Date.now(); this.haptic('short');
+    this.power.available = false; this.powerClass = 'power-button power-pending'; this.powerIcon = '/common/icons/refresh.png'; this.status = '切换中';
+    this.powerTimeout = setTimeout(() => { if (this.pendingPowerId === id && this.alive) { this.status = '仍在等待回执'; this.powerClass = 'power-button power-error'; this.haptic('long'); } }, 45000);
+    this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_power_request', id: id, issuedAt: Date.now(), target: this.power.target, desired: !this.power.value }, success: function () {}, fail: () => { this.finishPower(false); } });
+  },
+  render(data) { var model = view.compact(data, Date.now()); this.last = data; for (var key in model) this[key] = model[key]; if(!this.pendingPowerId&&model.snapshotStale)this.status='缓存 · '+model.snapshotAgeMinutes+'分钟前'; this.dateLabel = typeof data.day === 'string' ? data.day.slice(5).replace('-', '/') : '今日'; },
+  updateLabel(phase, progress) { var labels = { checking: '检查中', available: '有更新', current: '已是最新', downloading: '下载 ' + Math.max(0, Math.min(100, Number(progress) || 0)) + '%', installing: '安装中', verified: '已更新', failed: '未完成', unknown: '待核实', installer_setup: '需打开 AstroBox', phone_confirmation: '手机待确认', phone_submitted: '手机升级中', no_release: '暂无更新' }; return labels[phase] || '待核实'; },
+  manualRefresh() { this.haptic('short'); this.refresh(); },
+  checkUpdate() { this.haptic('short'); if (this.connection) this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_update_check' }, success: function () {}, fail: () => { this.updateText = '手机未连接'; } }); },
+  refresh() {
+    if (!this.connection || !this.alive) return;
+    if (!this.pendingPowerId) this.status = this.snapshotStale ? '缓存 · '+this.snapshotAgeMinutes+'分钟前' : '同步中';
+    try { this.connection.send({ data: { protocol: 1, entryId: 'powerprofile', type: 'powerprofile_request' }, success: function () {}, fail: () => { if (this.alive) this.status = this.last ? '缓存' : '未连接'; } }); } catch (error) { this.status = this.last ? '缓存' : '未连接'; }
+  },
+  onDestroy() { this.alive = false; if (this.timer) clearInterval(this.timer); if (this.powerTimeout) clearTimeout(this.powerTimeout); }
+}
+</script>
+<style>
+.page { width:336px;height:480px;background-color:#000000; }
+.list { width:336px;height:480px;padding-left:18px;padding-right:18px; }
+.heading { width:300px;height:48px;align-items:center;justify-content:space-between;padding-left:6px;padding-right:6px; }
+.brand,.baseline,.tile-label,.action-row,.quota-pair,.pair { flex-direction:row;align-items:center; }
+.logo { width:26px;height:26px;margin-right:8px; }.title { font-size:20px;color:#e8edf4; }
+.head-meta { flex-direction:column;align-items:flex-end; }.date { font-size:15px;color:#c7cbd3; }.status { font-size:14px;color:#858e9b; }
+.hero,.tile,.token-row,.quota { background-color:#191c21;border-radius:24px; }
+.hero { width:300px;height:104px;margin-bottom:8px;padding:12px;align-items:center; }
+.hero-icon { width:30px;height:30px;margin-right:10px; }.hero-data { flex-direction:column;flex:1; }.label { font-size:16px;color:#b5bdca; }
+.power-touch { width:72px;height:76px;align-items:center;justify-content:center; }
+.power-button { width:56px;height:56px;border-radius:28px;background-color:#272c33;align-items:center;justify-content:center; }.power-on { background-color:#23372c; }.power-pending { background-color:#304c70; }.power-error { background-color:#653537; }.power-unknown { opacity:0.4; }.power-icon { width:36px;height:36px; }
+.baseline { align-items:flex-end; }.hero-value { font-size:40px;font-weight:bold;color:#f6f8fc; }.unit { font-size:14px;color:#858e9b;margin-left:6px;margin-bottom:5px; }
+.pair { width:300px;height:90px;align-items:flex-start; }.left { margin-right:8px; }
+.tile { width:146px;height:82px;padding:12px;flex-direction:column; }.small-icon { width:20px;height:20px;margin-right:6px; }.tile-value { font-size:28px;font-weight:bold;color:#f6f8fc;margin-top:5px; }
+.token-row { width:300px;height:62px;margin-bottom:8px;padding:14px;align-items:center;justify-content:space-between; }.token-icon { width:24px;height:24px;margin-right:9px; }.token-value { font-size:28px;font-weight:bold;color:#f6f8fc; }
+.quota { width:300px;height:148px;padding:12px;margin-bottom:8px;flex-direction:column; }.quota-title { font-size:16px;color:#b5bdca;margin-bottom:6px; }.quota-pair { width:276px;align-items:flex-start; }.quota-cell { width:134px;flex-direction:column; }.quota-label { font-size:15px;color:#a0a9b8; }.quota-value { font-size:30px;font-weight:bold;color:#f6f8fc;margin-top:2px; }
+.bar { width:128px;height:6px;margin-top:5px;color:#79b5ff;background-color:#30363f; }.week-bar { color:#bbacff; }.reset { font-size:16px;color:#858e9b;margin-top:7px; }
+.footer { width:300px;height:122px;padding-top:24px;flex-direction:column; }.action { width:146px;height:50px;border-radius:25px;background-color:#242830;flex-direction:row;align-items:center;justify-content:center; }.action-icon { width:22px;height:22px;margin-right:8px; }.action-label { font-size:18px;color:#dce1e8; }.foot-note { font-size:14px;color:#858e9b;margin-top:12px;text-align:center;width:300px; }
+</style>

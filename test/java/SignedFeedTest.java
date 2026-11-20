@@ -36,5 +36,11 @@ public final class SignedFeedTest {
         rejects(() -> select(item().put("url", "http://github.com/" + SignedFeed.REPOSITORY + "/releases/download/v1/codex.rpk")));
         rejects(() -> SignedFeed.verify(envelope(payload(item()).put("components", new JSONArray().put(item()).put(item()))), keys.getPublic(), "preview", now).component("codex", "wearable", "M2551B1", "CN", 4, 4));
         System.out.println("Android update policy: " + checks + " real Java checks passed");
+        JSONObject pp = item().put("entryId", "powerprofile").put("appId", "io.github.lumishadevoyager.bandagent.powerprofile").put("url", "https://github.com/"+SignedFeed.REPOSITORY+"/releases/download/v0.1.0-preview.9/band-agent-powerprofile-0.1.0-preview.9.rpk");
+        if (feed(pp).component("powerprofile", "wearable", "M2551B1", "CN", 4, 4) == null) throw new AssertionError();
+        if (!SignedFeed.gatewayArtifact(pp.getString("url"), "wearable").equals(SignedFeed.OTA_ORIGIN+"/ota/releases/download/v0.1.0-preview.9/band-agent-powerprofile-0.1.0-preview.9.rpk")) throw new AssertionError();
+        rejects(() -> SignedFeed.gatewayArtifact(item().getString("url"), "wearable"));
+        rejects(() -> feed(pp).component("powerprofile", "wearable", "M2551B1", "CN", 4, 6));
+        System.out.println("PowerProfile component and fixed mirror policy passed");
     }
 }

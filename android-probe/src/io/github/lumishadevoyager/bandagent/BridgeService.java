@@ -14,14 +14,37 @@ import org.json.JSONObject;
 /** Owns the SDK listener across Activity closure and application updates. */
 public final class BridgeService extends Service implements OtaCoordinator.Sink {
     public static final String CHANNEL = "band_agent_bridge";
+    public static volatile boolean running;
+    private final String session=java.util.UUID.randomUUID().toString().replace("-", "");
+    private long startedAt, startedElapsed;
+    private android.net.ConnectivityManager.NetworkCallback networkCallback;
     private final ScheduledExecutorService work = Executors.newSingleThreadScheduledExecutor();
+    private final ExecutorService noticeWork=Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean noticeBusy=new java.util.concurrent.atomic.AtomicBoolean();
+    private final ExecutorService healthReports=Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean reportBusy=new java.util.concurrent.atomic.AtomicBoolean();
+    private final java.util.concurrent.atomic.AtomicBoolean syncQueued=new java.util.concurrent.atomic.AtomicBoolean();
+    private long registeredAt;
+    private final ScheduledExecutorService health = Executors.newSingleThreadScheduledExecutor();
+    private final ExecutorService wearableOut = new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(16),new ThreadPoolExecutor.DiscardOldestPolicy());
+    private PowerManager.WakeLock cpu;
+    private volatile boolean closing;
+    private BroadcastReceiver environment;
     private final ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor();
-    private String entry, token, nodeId;
+    private final ScheduledExecutorService otaWork = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService powerWork = Executors.newSingleThreadScheduledExecutor();
+    private final ExecutorService powerCommands = Executors.newSingleThreadExecutor();
+    private final ExecutorService powerReports = Executors.newSingleThreadExecutor();
+    private String entry, token;
+    private volatile String nodeId;
     private volatile boolean recording;
-    private boolean registered, registering;
+    private volatile boolean registered, registering;
+    private long nodeQueryAt;
     private OtaCoordinator updates;
     private DiagnosticStore diagnostics;
-    private ComputerLink computer;
+    private volatile ComputerLink computer;
+    private PowerProfileBridge powerprofile;
+    private MijiaPower mijia;
     private String previousState = "";
     private final OnMessageReceivedListener listener = (id, bytes) -> {
         if (bytes.length > 8192) return;
@@ -34,62 +57,145 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "手环连接与更新", NotificationManager.IMPORTANCE_LOW));
         PendingIntent open = PendingIntent.getActivity(this, 1, new Intent(this, BridgeActivity.class), PendingIntent.FLAG_IMMUTABLE);
-        try { startForeground(1, new Notification.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle("Band Agent 连接服务").setContentText("保持手环消息与自动更新连接").setContentIntent(open).setOngoing(true).build()); }
+        boolean monitor=getPackageName().endsWith(".powerprofile");
+        try { startForeground(1, new Notification.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle(monitor?"PowerProfile 后台连接":"Band Agent 连接服务").setContentText(monitor?"手环同步、米家控制与自动更新":"保持手环消息与自动更新连接").setContentIntent(open).setCategory(Notification.CATEGORY_SERVICE).setOnlyAlertOnce(true).setOngoing(true).build()); }
         catch (SecurityException error) { getSharedPreferences("ota", 0).edit().putString("lastStatus", "后台连接权限未满足，请打开手机伴侣完成设置").apply(); stopSelf(); return; }
         try {
             JSONObject config = new JSONObject(new String(OtaCoordinator.read(getAssets().open("development.json"), 8192), StandardCharsets.UTF_8));
             entry = config.getString("entryId"); token = config.optString("token", ""); updates = new OtaCoordinator(this, entry, this); diagnostics = new DiagnosticStore(this); computer = new ComputerLink(this);
-            diagnostics.phone(entry, ApkUpdateInstaller.current(this), "phone_service_started", new JSONObject().put("phase", "started"), false);
+            if ("powerprofile".equals(entry)) { powerprofile = new PowerProfileBridge(this); mijia = new MijiaPower(this,powerReports,this::powerState); }
+            else diagnostics.phone(entry, ApkUpdateInstaller.current(this), "phone_service_started", new JSONObject().put("phase", "started"), false);
         } catch (Exception error) { state("error", "更新配置加载失败：" + error.getClass().getSimpleName(), 0); stopSelf(); return; }
-        maintenance.scheduleWithFixedDelay(() -> updates.check(true, true), 20, 21600, TimeUnit.SECONDS);
-        maintenance.scheduleWithFixedDelay(() -> updates.poll(), 5, 5, TimeUnit.SECONDS);
-        work.scheduleWithFixedDelay(this::findNode, 5, 30, TimeUnit.SECONDS);
+        running=true;BridgeRecovery.schedule(this);startedAt=System.currentTimeMillis();startedElapsed=SystemClock.elapsedRealtime();
+        getSharedPreferences("runtime",0).edit().putLong("startedAt",startedAt).putBoolean("wearConnected",false).apply();
+        otaWork.scheduleWithFixedDelay(() -> safe(() -> updates.check(true, true)), 20, powerprofile == null ? 21600 : 900, TimeUnit.SECONDS);
+        otaWork.scheduleWithFixedDelay(() -> safe(() -> updates.poll()), 5, 5, TimeUnit.SECONDS);
+        work.scheduleWithFixedDelay(() -> safe(this::findNode), 5, 30, TimeUnit.SECONDS);
         maintenance.scheduleWithFixedDelay(this::uploadDiagnostics, 3, 10, TimeUnit.SECONDS);
-        maintenance.scheduleWithFixedDelay(this::pollComputer, 7, 15, TimeUnit.SECONDS);
+        health.scheduleWithFixedDelay(this::requestSync,7,15,TimeUnit.SECONDS);
+        if (mijia != null) powerWork.scheduleWithFixedDelay(() -> safe(() -> { mijia.tick(computer); powerState(); }), 4, 5, TimeUnit.SECONDS);
+        if (powerprofile != null) {
+            health.scheduleWithFixedDelay(() -> {if(reportBusy.compareAndSet(false,true))healthReports.execute(() -> {try{phoneReport();}finally{reportBusy.set(false);}});},12,60,TimeUnit.SECONDS);
+            cpu=getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,getPackageName()+":bridge");
+            cpu.setReferenceCounted(false);
+            // User-requested continuous wearable sync. Each lease expires if health stops.
+            health.scheduleWithFixedDelay(() -> safe(this::keepAwake),0,45,TimeUnit.SECONDS);
+            environment=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){
+                health.execute(() -> safe(BridgeService.this::keepAwake));
+                requestSync();
+                work.execute(() -> safe(BridgeService.this::findNode));
+            }};
+            IntentFilter changes=new IntentFilter(Intent.ACTION_SCREEN_ON);
+            changes.addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
+            changes.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
+            registerReceiver(environment,changes,Context.RECEIVER_NOT_EXPORTED);
+            networkCallback=new android.net.ConnectivityManager.NetworkCallback(){@Override public void onAvailable(android.net.Network network){
+                if(!maintenance.isShutdown())requestSync();
+                if(!work.isShutdown())work.execute(BridgeService.this::findNode);
+            }};
+            try{getSystemService(android.net.ConnectivityManager.class).registerDefaultNetworkCallback(networkCallback);}catch(RuntimeException ignored){networkCallback=null;}
+        }
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (updates == null) { stopSelf(); return START_NOT_STICKY; }
         if (intent != null) {
             String supplied = intent.getStringExtra("nodeId");
-            if (supplied != null) nodeId = supplied;
-            if ("check".equals(intent.getAction()) && updates != null) maintenance.execute(() -> updates.check(true, false));
+            if (supplied != null && !registered) nodeId = supplied;
+            if ("reconnect".equals(intent.getAction())) { detachNode(); requestSync(); }
+            if ("check".equals(intent.getAction()) && updates != null) otaWork.execute(() -> updates.check(true, false));
+            if ("installer_setup".equals(intent.getAction())) otaWork.execute(() -> updates.prepareInstaller());
+            if ("powerprofile_test_notice".equals(intent.getAction()) && powerprofile != null) maintenance.schedule(() -> {
+                try { powerprofile.testNotification(); state("test_notice", "测试通知已发布到手机；手环收件与震动需实机确认", 0); }
+                catch (Exception error) { state("error", "测试通知未发布，请检查通知权限与渠道", 0); }
+            }, 10, TimeUnit.SECONDS);
             if ("reload_link".equals(intent.getAction())) maintenance.execute(() -> { try { computer = new ComputerLink(this); uploadDiagnostics(); } catch (Exception error) { state("error", "电脑配对加载失败", 0); } });
         }
-        findNode(); return START_STICKY;
+        work.execute(() -> safe(this::findNode)); return START_STICKY;
+    }
+    private void requestSync() {
+        if(closing || !syncQueued.compareAndSet(false,true))return;
+        maintenance.execute(() -> {try{pollComputer();}finally{syncQueued.set(false);}});
+    }
+    private void safe(Runnable task) {
+        BackgroundLoop.run(task, error -> {
+            getSharedPreferences("runtime",0).edit().putString("loopError",error.getClass().getSimpleName()).putLong("loopErrorAt",System.currentTimeMillis()).apply();
+        });
+    }
+    private synchronized void keepAwake() {
+        if(closing)return;
+        boolean paired=computer!=null&&computer.paired();
+        if (paired && !cpu.isHeld()) cpu.acquire(120000);
+        // Renew before the previous bounded lease expires.
+        else if (paired) cpu.acquire(120000);
+        else if (cpu.isHeld()) cpu.release();
+        getSharedPreferences("runtime",0).edit().putLong("healthAt",System.currentTimeMillis()).putBoolean("cpuLease",cpu.isHeld()).apply();
     }
     private void findNode() {
-        if (registered || registering) return;
-        registering = true;
-        Wearable.getNodeApi(this).getConnectedNodes().addOnSuccessListener(nodes -> {
-            if (nodes.size() != 1) { registering = false; state("disconnected", "等待小米运动健康连接唯一手环", 0); return; }
-            nodeId = nodes.get(0).id;
+        if (registering && SystemClock.elapsedRealtime()-nodeQueryAt<20000) return;
+        registering = true;nodeQueryAt=SystemClock.elapsedRealtime();
+        try { Wearable.getNodeApi(this).getConnectedNodes().addOnSuccessListener(nodes -> {
+            if (nodes.size() != 1) { detachNode(); state("disconnected", "手环离线，保持云端连接并自动重连", 0); return; }
+            String found=nodes.get(0).id;
+            if(registered && found.equals(nodeId) && SystemClock.elapsedRealtime()-registeredAt<120000){registering=false;return;}
+            detachNode();nodeId=found;registering=true;
             Wearable.getMessageApi(this).addListener(nodeId, listener)
-                .addOnSuccessListener(ignored -> { registered = true; registering = false; state("connected", "后台监听就绪", 0); })
+                .addOnSuccessListener(ignored -> { if(!found.equals(nodeId))return;registered = true; registering = false; registeredAt=SystemClock.elapsedRealtime();getSharedPreferences("runtime",0).edit().putBoolean("wearConnected",true).apply();state("connected", "手环已连接，后台同步中", 0); })
                 .addOnFailureListener(error -> { registering = false; state("error", "手环消息授权待完成", 0); });
-        }).addOnFailureListener(error -> { registering = false; });
+        }).addOnFailureListener(error -> { detachNode(); }); } catch(RuntimeException ignored){detachNode();}
     }
+    private void detachNode(){String previous=nodeId;nodeId=null;registered=false;registering=false;if(previous!=null)try{Wearable.getMessageApi(this).removeListener(previous);}catch(RuntimeException ignored){}getSharedPreferences("runtime",0).edit().putBoolean("wearConnected",false).apply();}
+    private void phoneReport(){try{if(computer==null||!computer.internet())return;computer.post("/powerprofile/phone-report",PhoneStatus.report(this,session,startedAt,(SystemClock.elapsedRealtime()-startedElapsed)/1000,registered));}catch(Exception error){getSharedPreferences("runtime",0).edit().putString("reportError",error.getClass().getSimpleName()).apply();}}
     public boolean busy() { return recording; }
     public void state(String phase, String text, int progress) {
         android.util.Log.i("BandAgentBridge", "phase=" + phase + " " + text);
-        try { String key = phase + ":" + text; if (diagnostics != null && !key.equals(previousState)) { previousState = key; diagnostics.phone(entry, ApkUpdateInstaller.current(this), "bridge_" + phase.replaceAll("[^a-z0-9_]", ""), new JSONObject().put("phase", phase).put("errorCode", phase.equals("error") ? text.substring(0, Math.min(100, text.length())) : ""), phase.equals("error")); } } catch (Exception ignored) {}
+        try { String key = phase + ":" + text; if (powerprofile == null && diagnostics != null && !key.equals(previousState)) { previousState = key; diagnostics.phone(entry, ApkUpdateInstaller.current(this), "bridge_" + phase.replaceAll("[^a-z0-9_]", ""), new JSONObject().put("phase", phase).put("errorCode", phase.equals("error") ? text.substring(0, Math.min(100, text.length())) : ""), phase.equals("error")); } } catch (Exception ignored) {}
+        if (!java.util.Arrays.asList("computer_synced", "wear_ack", "test_notice", "disconnected").contains(phase)) getSharedPreferences("ota", 0).edit().putString("lastUpdateStatus", text).apply();
         getSharedPreferences("ota", 0).edit().putString("lastStatus", text).putString("phase", phase).apply();
         sendBroadcast(new Intent(getPackageName() + ".STATUS").setPackage(getPackageName()).putExtra("text", text));
-        if (nodeId != null && entry != null) {
+        if (nodeId != null && entry != null && !"computer_synced".equals(phase)) {
             try { send(nodeId, new JSONObject().put("protocol", 1).put("type", "ota_status").put("entryId", entry).put("phase", phase).put("text", text).put("progress", progress)); } catch (Exception ignored) {}
         }
     }
-    private void send(String destination, JSONObject message) { Wearable.getMessageApi(this).sendMessage(destination, message.toString().getBytes(StandardCharsets.UTF_8)); }
+    private void send(String destination, JSONObject message) {
+        byte[] bytes=message.toString().getBytes(StandardCharsets.UTF_8);
+        wearableOut.execute(() -> safe(() -> {
+            getSharedPreferences("runtime",0).edit().putLong("lastSendAttemptAt",System.currentTimeMillis()).apply();
+            Wearable.getMessageApi(this).sendMessage(destination,bytes)
+                .addOnFailureListener(error -> getSharedPreferences("runtime",0).edit().putLong("lastSendFailureAt",System.currentTimeMillis()).apply());
+        }));
+    }
+    private void powerState() { if (mijia != null) try { JSONObject current=mijia.state();getSharedPreferences("runtime",0).edit().putString("powerTarget",current.optString("target")).putString("powerPhase",current.optString("phase")).putBoolean("powerAvailable",current.optBoolean("available")).apply();if(nodeId!=null)send(nodeId,current); } catch (Exception ignored) {} }
     private void receive(String source, byte[] bytes) {
         try {
             JSONObject message = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
             if (!entry.equals(message.optString("entryId")) || message.optInt("protocol") != 1) return;
             String type = message.optString("type"); nodeId = source;
+            getSharedPreferences("runtime",0).edit().putLong("lastWearAt",System.currentTimeMillis()).apply();
+            if (powerprofile != null) {
+                if ("powerprofile_power_request".equals(type)) {
+                    try{MijiaPower.Command command=mijia.accept(message);if(command!=null)powerCommands.execute(()->mijia.execute(computer,command));}
+                    catch(Exception ignored){try{send(source,new JSONObject().put("protocol",1).put("entryId",entry).put("type","powerprofile_power_rejected").put("commandId",message.optString("id")));}catch(Exception unavailable){}}
+                }
+                if ("powerprofile_request".equals(type) || "powerprofile_hello".equals(type)) powerWork.execute(() -> { mijia.tick(computer); powerState(); });
+                if ("powerprofile_update_check".equals(type)) otaWork.execute(() -> updates.check(true, false));
+                if ("powerprofile_hello".equals(type)) { final long actual = message.optLong("versionCode"); if (actual > 0) otaWork.execute(() -> updates.hello(actual)); }
+                if ("powerprofile_request".equals(type)) requestSync();
+                if ("powerprofile_snapshot_applied".equals(type)) {
+                    final String snapshotAt = message.optString("snapshotAt"); final int versionCode = message.optInt("versionCode");
+                    otaWork.execute(() -> updates.hello(versionCode));
+                    maintenance.execute(() -> { try {
+                        computer.post("/powerprofile/device-report", new JSONObject().put("protocol", 1).put("entryId", entry).put("snapshotAt", snapshotAt).put("versionCode", versionCode));
+                        state("wear_ack", "手环已应用统计快照 · 版本码 " + versionCode, 0);
+                    } catch (Exception ignored) {} });
+                }
+                return;
+            }
             if (type.equals("probe_capabilities")) {
                 String report = "手环 " + message.optString("version") + " 接口诊断：" + message.optJSONObject("record");
                 android.util.Log.i("BandAgentProbe", report); state("diagnostic", report, 0); return;
             }
-            if (type.equals("ota_hello")) { long code = message.getLong("versionCode"); maintenance.execute(() -> updates.hello(code)); return; }
-            if (type.equals("ota_check")) { boolean apply = message.optBoolean("apply", true); maintenance.execute(() -> updates.check(apply, false)); return; }
+            if (type.equals("ota_hello")) { long code = message.getLong("versionCode"); otaWork.execute(() -> updates.hello(code)); return; }
+            if (type.equals("ota_check")) { boolean apply = message.optBoolean("apply", true); otaWork.execute(() -> updates.check(apply, false)); return; }
             if (type.equals("diag_batch")) {
                 org.json.JSONArray ids = diagnostics.accept(entry, message.getJSONArray("events"));
                 send(source, new JSONObject().put("protocol", 1).put("type", "diag_ack").put("entryId", entry).put("ids", ids));
@@ -123,6 +229,7 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
         } finally { connection.disconnect(); }
     }
     private void uploadDiagnostics() {
+        if (powerprofile != null) return;
         try {
             if (diagnostics == null || computer == null || !computer.paired() || recording) return;
             org.json.JSONArray events = diagnostics.pending(); if (events.length() == 0) return;
@@ -137,6 +244,11 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
     private void pollComputer() {
         try {
             if (computer == null || !computer.paired() || recording) return;
+            if (powerprofile != null) { getSharedPreferences("runtime",0).edit().putLong("syncAttemptAt",System.currentTimeMillis()).apply();
+                org.json.JSONArray notices=powerprofile.readSnapshot(computer);
+                if(nodeId!=null){String destination=nodeId;String snapshot=getSharedPreferences("powerprofile",0).getString("snapshot","");if(!snapshot.isEmpty())send(destination,new JSONObject(snapshot));}
+                if(noticeBusy.compareAndSet(false,true))noticeWork.execute(() -> {try{powerprofile.deliverNotifications(computer,notices);}catch(Exception error){getSharedPreferences("runtime",0).edit().putLong("noticeFailureAt",System.currentTimeMillis()).apply();}finally{noticeBusy.set(false);}});
+                mijia.computerObservation(powerprofile.sourceOnline(),powerprofile.sourceAt());getSharedPreferences("runtime",0).edit().putLong("lastSyncAt",System.currentTimeMillis()).putString("syncError", "").apply();state("computer_synced", powerprofile.statusText(), 0); return; }
             org.json.JSONArray commands = computer.post("/poll", new JSONObject().put("entryId", entry)).getJSONArray("commands");
             for (int i = 0; i < commands.length(); i++) {
                 JSONObject command = commands.getJSONObject(i); String type = command.getString("type");
@@ -145,8 +257,16 @@ public final class BridgeService extends Service implements OtaCoordinator.Sink 
                     send(nodeId, new JSONObject().put("protocol", 1).put("type", "draft_ready").put("entryId", entry).put("id", command.getString("id")).put("audioId", command.getString("audioId")).put("text", command.getString("text")).put("status", "unsubmitted"));
                 }
             }
-        } catch (Exception ignored) { /* Offline polling retries; durable commands are not retired. */ }
+        } catch (Exception error) {
+            if (powerprofile != null) {
+                String code = error.getClass().getSimpleName();
+                if (error.getMessage() != null && error.getMessage().matches("computer_http_[0-9]{3}")) code = error.getMessage();
+                getSharedPreferences("runtime",0).edit().putString("syncError",code).apply();
+                state("offline", (computer != null && computer.internet() ? "互联网中继暂不可达 · " : "电脑未连接 · ") + code + "；保留快照并重试", 0);
+            }
+            /* Durable commands are not retired. Error text never contains credentials. */
+        }
     }
     @Override public IBinder onBind(Intent intent) { return null; }
-    @Override public void onDestroy() { if (registered && nodeId != null) Wearable.getMessageApi(this).removeListener(nodeId); work.shutdownNow(); maintenance.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }
+    @Override public synchronized void onDestroy() { closing=true;running=false;health.shutdownNow();healthReports.shutdownNow();noticeWork.shutdownNow();wearableOut.shutdownNow();if(cpu!=null&&cpu.isHeld())cpu.release();if(environment!=null)unregisterReceiver(environment);if(networkCallback!=null)try{getSystemService(android.net.ConnectivityManager.class).unregisterNetworkCallback(networkCallback);}catch(RuntimeException ignored){}detachNode();work.shutdownNow(); maintenance.shutdownNow(); otaWork.shutdownNow(); powerWork.shutdownNow();powerCommands.shutdownNow();powerReports.shutdownNow(); if (diagnostics != null) diagnostics.close(); super.onDestroy(); }
 }

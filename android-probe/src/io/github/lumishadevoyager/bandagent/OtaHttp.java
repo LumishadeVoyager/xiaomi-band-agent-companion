@@ -12,7 +12,8 @@ public final class OtaHttp {
         URL url = new URL(address);
         for (int redirects = 0; redirects < 6; redirects++) {
             String host = url.getHost();
-            if (!"https".equals(url.getProtocol()) || !(host.equals("github.com") || host.equals("raw.githubusercontent.com") || host.equals("release-assets.githubusercontent.com") || host.equals("objects.githubusercontent.com")) || url.getPort() != -1 || url.getUserInfo() != null) throw new SecurityException("untrusted_download_host");
+            boolean gateway = host.equals(new URL(SignedFeed.OTA_ORIGIN).getHost()) && url.getPath().startsWith("/ota/") && url.getQuery() == null;
+            if (!"https".equals(url.getProtocol()) || !(gateway || host.equals("github.com") || host.equals("raw.githubusercontent.com") || host.equals("release-assets.githubusercontent.com") || host.equals("objects.githubusercontent.com")) || url.getPort() != -1 || url.getUserInfo() != null) throw new SecurityException("untrusted_download_host");
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
             c.setInstanceFollowRedirects(false); c.setConnectTimeout(15000); c.setReadTimeout(20000); c.setRequestProperty("Accept-Encoding", "identity");
             if (offset > 0) c.setRequestProperty("Range", "bytes=" + offset + "-");
@@ -42,7 +43,8 @@ public final class OtaHttp {
         if (file.isFile() && valid(file, total, hash)) return file;
         File part = new File(directory, hash + ".part"); long offset = part.isFile() ? part.length() : 0;
         if (offset >= total) { Files.deleteIfExists(part.toPath()); offset = 0; }
-        HttpURLConnection c = open(item.getString("url"), offset);
+        String address = "powerprofile".equals(item.optString("entryId")) ? SignedFeed.gatewayArtifact(item.getString("url"), kind) : item.getString("url");
+        HttpURLConnection c = open(address, offset);
         try {
             int code = c.getResponseCode();
             if (code != 200 && code != 206) throw new IOException("download_http_" + code);

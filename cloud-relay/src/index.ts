@@ -1,0 +1,106 @@
+import { DurableObject } from 'cloudflare:workers';
+import { DAY, identity, normalizeSnapshot, eventList, ids, deviceReport, phoneReport, readBody, type Snapshot, type Event, type Report } from './protocol.ts';
+
+function response(data: unknown, status = 200): Response {
+  return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+}
+async function matches(given: string, expected: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([crypto.subtle.digest('SHA-256', enc.encode(given)), crypto.subtle.digest('SHA-256', enc.encode(expected))]);
+  return crypto.subtle.timingSafeEqual(a, b);
+}
+
+export class PairRelay extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL, at INTEGER NOT NULL)');
+    this.ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, at INTEGER NOT NULL, ack INTEGER NOT NULL DEFAULT 0)');
+  }
+  private prune(now: number): void { this.ctx.storage.sql.exec('DELETE FROM events WHERE at < ?', now - DAY); this.ctx.storage.sql.exec('DELETE FROM state WHERE at < ?', now - DAY); }
+  async publish(snapshot: Snapshot, events: Event[]): Promise<{ accepted: true; ackedIds: string[]; report: Report | null }> {
+    const now = Date.now();
+    this.ctx.storage.transactionSync(() => {
+      this.prune(now);
+      for (const event of events) this.ctx.storage.sql.exec('INSERT OR IGNORE INTO events(id,at) VALUES (?,?)', event.id, Date.parse(event.at));
+      if (this.ctx.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM events').one().count > 2000) throw new Error('event_queue_full');
+      const previous = this.ctx.storage.sql.exec<{ value: string }>("SELECT value FROM state WHERE key='snapshot'").toArray()[0];
+      if (!previous || Date.parse(JSON.parse(previous.value).generatedAt) <= Date.parse(snapshot.generatedAt)) this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state(key,value,at) VALUES ('snapshot',?,?)", JSON.stringify(snapshot), now);
+      this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state(key,value,at) VALUES ('heartbeat','1',?)", now);
+    });
+    if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(now + DAY);
+    // The PC retransmits its unacknowledged batch. Return only that batch's
+    // receipts rather than reading all historical tombstones every ten seconds.
+    const ackedIds = events.filter(event => this.ctx.storage.sql.exec<{ ack: number }>('SELECT ack FROM events WHERE id=?', event.id).one().ack === 1).map(event => event.id);
+    return { accepted: true, ackedIds, report: this.latestReport() };
+  }
+  private latestReport(): Report | null {
+    const row = this.ctx.storage.sql.exec<{ value: string }>("SELECT value FROM state WHERE key='report'").toArray()[0]; return row ? JSON.parse(row.value) : null;
+  }
+  async poll(): Promise<{ snapshot: Snapshot; events: Event[]; relay: { sourceOnline: boolean; lastUploadAt: string } } | null> {
+    const now = Date.now(); this.prune(now);
+    const row = this.ctx.storage.sql.exec<{ value: string; at: number }>("SELECT value,at FROM state WHERE key='snapshot'").toArray()[0];
+    if (!row) return null;
+    const heartbeat = this.ctx.storage.sql.exec<{ at: number }>("SELECT at FROM state WHERE key='heartbeat'").toArray()[0];
+    return { snapshot: JSON.parse(row.value), events: this.ctx.storage.sql.exec<{ id: string; at: number }>('SELECT id,at FROM events WHERE ack=0 ORDER BY at LIMIT 20').toArray().map(e => ({ id: e.id, at: new Date(e.at).toISOString() })), relay: { sourceOnline: !!heartbeat && now - heartbeat.at < 90000, lastUploadAt: new Date(heartbeat?.at ?? row.at).toISOString() } };
+  }
+  async ack(acked: string[]): Promise<{ ok: true }> {
+    this.ctx.storage.transactionSync(() => { this.prune(Date.now()); for (const id of acked) this.ctx.storage.sql.exec('UPDATE events SET ack=1 WHERE id=?', id); });
+    return { ok: true };
+  }
+  async report(report: Report): Promise<{ ok: true }> {
+    const row = this.ctx.storage.sql.exec<{ value: string }>("SELECT value FROM state WHERE key='snapshot'").toArray()[0];
+    if (!row || Math.abs(Date.parse(JSON.parse(row.value).generatedAt) - Date.parse(report.snapshotAt)) > 300000) throw new Error('unknown_snapshot');
+    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state(key,value,at) VALUES ('report',?,?)", JSON.stringify(report), Date.now()); return { ok: true };
+  }
+  async alarm(): Promise<void> { this.prune(Date.now()); if (this.ctx.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM state').one().count || this.ctx.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM events').one().count) await this.ctx.storage.setAlarm(Date.now() + DAY); }
+  // Encrypted phone pairing; no Xiaomi plaintext in storage. The shared phone
+  // token is also a relay secret, so this does not hide data from its operator.
+  async mijiaConfig(value?: { nonce: string; ciphertext: string }): Promise<unknown> {
+    if (value) await this.ctx.storage.put('mijia-config', value);
+    return (await this.ctx.storage.get('mijia-config')) ?? null;
+  }
+  async mijiaReport(value?: Record<string, unknown>): Promise<unknown> {
+    if (value) {
+      const previous = await this.ctx.storage.get<Record<string, unknown>>('mijia-report');
+      const report = { ...value, receivedAt: new Date().toISOString() };
+      await this.ctx.storage.put('mijia-report', { ...report, lastTest: ['restored', 'failed', 'restore_pending'].includes(String(value.phase)) && value.testId ? report : previous?.lastTest ?? null });
+    }
+    return (await this.ctx.storage.get('mijia-report')) ?? null;
+  }
+  async phoneReport(value?: Record<string, unknown>): Promise<unknown> {
+    if(value) await this.ctx.storage.put('phone-report',{...value,receivedAt:new Date().toISOString()});
+    return (await this.ctx.storage.get('phone-report')) ?? null;
+  }
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const route = new URL(request.url).pathname;
+    if (route === '/health' && request.method === 'GET') return response({ service: 'powerprofile-relay', protocol: 1 });
+    if (request.method !== 'POST' || !['/relay/publish', '/powerprofile/poll', '/powerprofile/ack', '/powerprofile/device-report', '/relay/mijia-config', '/relay/mijia-report', '/powerprofile/mijia-config', '/powerprofile/mijia-report', '/powerprofile/phone-report', '/relay/phone-report'].includes(route)) return response({ error: 'not_found' }, 404);
+    if (!/^[a-f0-9]{64}$/.test(env.PC_TOKEN || '') || !/^[a-f0-9]{64}$/.test(env.PHONE_TOKEN || '') || !/^[a-f0-9]{32}$/.test(env.CHANNEL_ID || '')) return response({ error: 'relay_not_configured' }, 503);
+    const supplied = request.headers.get('Authorization') || '';
+    if (!(await matches(supplied, 'Bearer ' + (route.startsWith('/relay/') ? env.PC_TOKEN : env.PHONE_TOKEN)))) return response({ error: 'unauthorized' }, 401);
+    try {
+      const body = identity(await readBody(request, ['/relay/publish', '/relay/mijia-config'].includes(route) ? 32768 : 8192));
+      const relay = env.PAIRS.getByName(env.CHANNEL_ID);
+      if (route === '/powerprofile/phone-report') {await relay.phoneReport(phoneReport(body));return response({ok:true});}
+      if (route === '/relay/phone-report') return response({report:await relay.phoneReport()});
+      if (route === '/relay/mijia-config') {
+        const value = body.config as Record<string, unknown> | undefined;
+        if (!value || typeof value.nonce !== 'string' || !/^[A-Za-z0-9+/]{16}$/.test(value.nonce) || typeof value.ciphertext !== 'string' || value.ciphertext.length > 16000 || value.ciphertext.length < 100 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value.ciphertext)) throw new Error('invalid_config');
+        await relay.mijiaConfig({ nonce: value.nonce, ciphertext: value.ciphertext }); return response({ ok: true });
+      }
+      if (route === '/powerprofile/mijia-config') return response({ config: await relay.mijiaConfig() });
+      if (route === '/relay/mijia-report') return response({ report: await relay.mijiaReport() });
+      if (route === '/powerprofile/mijia-report') {
+        if (!['computer', 'purifier'].includes(String(body.target)) || !['ready', 'confirmed', 'failed', 'restored', 'restore_pending', 'auth_required'].includes(String(body.phase)) || typeof body.revision !== 'number' || !Number.isSafeInteger(body.revision) || (body.value !== null && typeof body.value !== 'boolean') || typeof body.testId !== 'string' || body.testId.length > 64 || !/^[a-zA-Z0-9_-]*$/.test(body.testId)) throw new Error('invalid_report');
+        await relay.mijiaReport({ target: body.target, phase: body.phase, revision: body.revision, value: body.value, testId: body.testId, phoneVersion: Number.isSafeInteger(body.phoneVersion) ? body.phoneVersion : 0 }); return response({ ok: true });
+      }
+      if (route === '/relay/publish') return response(await relay.publish(normalizeSnapshot(body.snapshot), eventList(body.events)));
+      if (route === '/powerprofile/ack') return response(await relay.ack(ids(body.ids)));
+      if (route === '/powerprofile/device-report') return response(await relay.report(deviceReport(body)));
+      const data = await relay.poll(); return data ? response(data) : response({ error: 'snapshot_not_available' }, 503);
+    } catch { return response({ error: 'invalid_request' }, 400); }
+  }
+} satisfies ExportedHandler<Env>;
